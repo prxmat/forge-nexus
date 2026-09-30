@@ -134,7 +134,10 @@ void LiveOnEvent(void* payload) {
     case SC_None: break;
     default: return;
     }
-    if (ev->isActivation || ev->isBuffRemove) return;
+    if (ev->isActivation) return;
+    // Anyone the squad touches during the fight, buffs and heals included: allies around us show up that way.
+    if (s.active && !s.finished) { Note(s, p->src, ev->srcInstid); Note(s, p->dst, ev->dstInstid); }
+    if (ev->isBuffRemove) return;
     if (ev->result != R_Normal && ev->result != R_Critical && ev->result != R_Glance && ev->result != R_KillingBlow) return;
     int32_t damage = ev->buff == 0 ? ev->value : ev->buff == 1 ? ev->buffDmg : 0;
     if (damage <= 0 && ev->result != R_KillingBlow) return;
