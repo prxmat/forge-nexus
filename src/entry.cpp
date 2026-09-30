@@ -455,62 +455,65 @@ static void RenderCombats() {
     }
 }
 
-// The widget: a strip by the screen's edge, the last fight in one line. WvW: team counts stacked in their colours
-// and the recorder's kills / deaths; PvE: boss, outcome, the recorder's DPS and rank.
+// The widget, as WvW Fight Analysis draws it: a thin strip, a dark square with the squad icon, then the teams'
+// counts as coloured segments with the number in white. PvE: one segment with the boss, the outcome and the
+// recorder's DPS. No window frame: only the strip.
 static void RenderWidget() {
     Settings st;
     { std::lock_guard<std::mutex> lock(g_state.mutex); st = g_state.settings; }
     if (!st.showWidget || (st.hideInCombat && InCombat())) return;
     std::lock_guard<std::mutex> flock(g_fights.mutex);
     if (NexusLink && NexusLink->Font) ImGui::PushFont((ImFont*)NexusLink->Font);
-    ImGui::SetNextWindowBgAlpha(0.75f);
-    ImGui::SetNextWindowPos(ImVec2(300.0f, 40.0f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Forge widget", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse)) {
-        ImGui::SetWindowFontScale(st.fontScale);
-        static const ParsedFight none{};
-        const ParsedFight& f = g_fights.fights.empty() ? none : g_fights.fights.front();
+    const float scale = st.fontScale;
+    const float height = 26.0f * scale, iconBox = 34.0f * scale, barWidth = 320.0f * scale;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(10, 10));
+    ImGui::SetNextWindowBgAlpha(0.0f);
+    ImGui::SetNextWindowPos(ImVec2(330.0f, 30.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(iconBox + barWidth, height));
+    if (ImGui::Begin("Forge widget", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBackground)) {
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        ImVec2 pos = ImGui::GetCursorScreenPos();
+        const ImU32 dark = IM_COL32(24, 24, 28, 235), outline = IM_COL32(60, 60, 66, 255), white = IM_COL32(245, 245, 245, 255);
+        // Icon box.
+        draw->AddRectFilled(pos, ImVec2(pos.x + iconBox, pos.y + height), dark);
+        draw->AddRect(pos, ImVec2(pos.x + iconBox + barWidth, pos.y + height), outline);
+        if (Texture_t* icon = UiTexture("squad"); icon && icon->Resource) draw->AddImage((ImTextureID)icon->Resource, ImVec2(pos.x + (iconBox - 16 * scale) / 2, pos.y + (height - 16 * scale) / 2), ImVec2(pos.x + (iconBox + 16 * scale) / 2, pos.y + (height + 16 * scale) / 2));
+        float x = pos.x + iconBox;
+        auto segment = [&](float w, ImU32 colour, const std::string& text) {
+            draw->AddRectFilled(ImVec2(x, pos.y), ImVec2(x + w, pos.y + height), colour);
+            ImVec2 size = ImGui::CalcTextSize(text.c_str());
+            if (w >= size.x + 8) draw->AddText(ImVec2(x + (w - size.x) / 2, pos.y + (height - size.y) / 2), white, text.c_str());
+            x += w;
+        };
         if (g_fights.fights.empty()) {
-            UiIcon("squad", ImGui::GetTextLineHeight());
-            ImGui::TextColored(MUTED, "%s", "Forge · en attente d'un combat (déplace-moi)");
-        } else if (f.wvw && !f.teams.empty()) {
-            UiIcon("squad", ImGui::GetTextLineHeight());
-            float total = 0;
-            for (const auto& t : f.teams) total += t.players;
-            float barWidth = 260.0f, height = ImGui::GetTextLineHeight() + 4.0f;
-            ImVec2 pos = ImGui::GetCursorScreenPos();
-            ImDrawList* draw = ImGui::GetWindowDrawList();
-            float x = pos.x;
-            for (const auto& t : f.teams) {
-                float w = total > 0 ? barWidth * t.players / total : 0;
-                draw->AddRectFilled(ImVec2(x, pos.y), ImVec2(x + w, pos.y + height), ImGui::GetColorU32(TeamColour(t.name)));
-                std::string label = std::to_string(t.players);
-                ImVec2 size = ImGui::CalcTextSize(label.c_str());
-                if (w > size.x + 6) draw->AddText(ImVec2(x + (w - size.x) / 2, pos.y + 2), IM_COL32(20, 22, 26, 255), label.c_str());
-                x += w;
-            }
-            ImGui::Dummy(ImVec2(barWidth, height));
-            for (const auto& t : f.teams) if (t.pov) { ImGui::SameLine(0, 8); ImGui::TextColored(GREEN, "%d", t.kills); ImGui::SameLine(0, 2); ImGui::TextColored(MUTED, "/"); ImGui::SameLine(0, 2); ImGui::TextColored(RED, "%d", t.deaths); ImGui::SameLine(0, 6); ImGui::TextColored(MUTED, "%s", Clock((int)f.durationMs).c_str()); }
+            segment(barWidth, IM_COL32(40, 42, 48, 235), "Forge · en attente d'un combat");
         } else {
-            ImGui::TextUnformatted(f.boss.c_str());
-            ImGui::SameLine();
-            if (f.success) ImGui::TextColored(GREEN, "kill %s", Clock((int)f.durationMs).c_str());
-            else if (f.hpLeft >= 0) ImGui::TextColored(RED, "wipe %.0f %% · %s", f.hpLeft, Clock((int)f.durationMs).c_str());
-            else ImGui::TextColored(RED, "wipe · %s", Clock((int)f.durationMs).c_str());
-            if (f.hasMe) {
-                int rank = 0;
-                uint64_t top = 1;
-                for (size_t i = 0; i < f.squad.size(); i++) { if (f.squad[i].pov) rank = (int)i + 1; top = std::max(top, f.squad[i].damage); }
+            const ParsedFight& f = g_fights.fights.front();
+            if (f.wvw && !f.teams.empty()) {
+                float total = 0;
+                for (const auto& t : f.teams) total += t.players;
+                for (const auto& t : f.teams) {
+                    ImVec4 c = TeamColour(t.name);
+                    ImU32 colour = t.name == "Red" ? IM_COL32(211, 74, 58, 235) : t.name == "Blue" ? IM_COL32(58, 166, 217, 235) : t.name == "Green" ? IM_COL32(141, 197, 63, 235) : ImGui::GetColorU32(c);
+                    segment(total > 0 ? barWidth * t.players / total : 0, colour, std::to_string(t.players));
+                }
+            } else {
                 double seconds = std::max(1.0, f.durationMs / 1000.0);
-                ImGui::SameLine(0, 8);
-                ImGui::TextColored(SKY, "toi %s DPS", Thousands(f.me.damage / seconds).c_str());
-                if (rank) { ImGui::SameLine(0, 4); ImGui::TextColored(MUTED, "(%de/%d)", rank, (int)f.squad.size()); }
-                if (f.me.deaths) { ImGui::SameLine(0, 6); ImGui::TextColored(RED, "%d mort(s)", f.me.deaths); }
-                Bar((float)f.me.damage / (float)top, SKY, 260.0f);
+                std::string text = f.boss + (f.success ? " · kill " : f.hpLeft >= 0 ? " · wipe " + std::to_string((int)(f.hpLeft + 0.5)) + " % " : " · wipe ") + Clock((int)f.durationMs);
+                if (f.hasMe) {
+                    int rank = 0;
+                    for (size_t i = 0; i < f.squad.size(); i++) if (f.squad[i].pov) rank = (int)i + 1;
+                    text += " · " + Thousands(f.me.damage / seconds) + " DPS" + (rank ? " (" + std::to_string(rank) + "e)" : "");
+                }
+                segment(barWidth, f.success ? IM_COL32(52, 140, 88, 235) : IM_COL32(150, 52, 48, 235), text);
             }
         }
-        ImGui::SetWindowFontScale(1.0f);
+        ImGui::Dummy(ImVec2(iconBox + barWidth, height));
     }
     ImGui::End();
+    ImGui::PopStyleVar(3);
     if (NexusLink && NexusLink->Font) ImGui::PopFont();
 }
 
@@ -764,7 +767,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 5, 2, 0 };
+    Def.Version = { 0, 5, 3, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
