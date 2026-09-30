@@ -71,6 +71,9 @@ struct Settings {
     float fontScale = 1.0f;
     // Combats tab and widget.
     bool squadOnly = false, sortByDamage = false, shortNames = false, showWidget = true, showStrip = true, hideInCombat = false;
+    // Panel contents, as Fight Analysis lets one pick them.
+    bool panelBars = true, panelNames = true, panelIcons = true, panelClassDamage = true, panelTotal = true, panelKd = false, panelDeaths = true, panelDowns = true, panelDamage = true;
+    float panelAlpha = 0.88f;
 };
 
 // Shared between the render thread and the poller.
@@ -92,6 +95,8 @@ extern ForgeState g_state;
 
 void LoadSettings(const std::string& path);
 void SaveSettings(const std::string& path);
+// Same, for a caller that already holds g_state.mutex.
+void SaveSettingsLocked(const std::string& path);
 
 // One poll: fetches /api/live/night and updates the state; returns false when the token is refused.
 bool PollNight();

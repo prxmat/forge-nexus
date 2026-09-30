@@ -90,14 +90,24 @@ void LoadSettings(const std::string& path) {
         g_state.settings.shortNames = data.value("short_names", false);
         g_state.settings.showWidget = data.value("show_widget", true);
         g_state.settings.showStrip = data.value("show_strip", true);
+        g_state.settings.panelBars = data.value("panel_bars", true);
+        g_state.settings.panelNames = data.value("panel_names", true);
+        g_state.settings.panelIcons = data.value("panel_icons", true);
+        g_state.settings.panelClassDamage = data.value("panel_class_damage", true);
+        g_state.settings.panelTotal = data.value("panel_total", true);
+        g_state.settings.panelKd = data.value("panel_kd", false);
+        g_state.settings.panelDeaths = data.value("panel_deaths", true);
+        g_state.settings.panelDowns = data.value("panel_downs", true);
+        g_state.settings.panelDamage = data.value("panel_damage", true);
+        g_state.settings.panelAlpha = data.value("panel_alpha", 0.88f);
         g_state.settings.hideInCombat = data.value("hide_in_combat", false);
     } catch (...) {}
 }
 
-void SaveSettings(const std::string& path) {
+// The caller holds g_state.mutex (std::mutex cannot be taken twice by the same thread: the game would freeze).
+void SaveSettingsLocked(const std::string& path) {
     json data;
     {
-        std::lock_guard<std::mutex> lock(g_state.mutex);
         data["forge_url"] = g_state.settings.forgeUrl;
         data["token"] = g_state.settings.token;
         data["roster_id"] = g_state.settings.rosterId;
@@ -109,10 +119,25 @@ void SaveSettings(const std::string& path) {
         data["short_names"] = g_state.settings.shortNames;
         data["show_widget"] = g_state.settings.showWidget;
         data["show_strip"] = g_state.settings.showStrip;
+        data["panel_bars"] = g_state.settings.panelBars;
+        data["panel_names"] = g_state.settings.panelNames;
+        data["panel_icons"] = g_state.settings.panelIcons;
+        data["panel_class_damage"] = g_state.settings.panelClassDamage;
+        data["panel_total"] = g_state.settings.panelTotal;
+        data["panel_kd"] = g_state.settings.panelKd;
+        data["panel_deaths"] = g_state.settings.panelDeaths;
+        data["panel_downs"] = g_state.settings.panelDowns;
+        data["panel_damage"] = g_state.settings.panelDamage;
+        data["panel_alpha"] = g_state.settings.panelAlpha;
         data["hide_in_combat"] = g_state.settings.hideInCombat;
     }
     std::ofstream file(path);
     file << data.dump(2);
+}
+
+void SaveSettings(const std::string& path) {
+    std::lock_guard<std::mutex> lock(g_state.mutex);
+    SaveSettingsLocked(path);
 }
 
 static std::vector<std::string> Strings(const json& value) {

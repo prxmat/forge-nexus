@@ -47,7 +47,7 @@ static void ToggleWidget(const char*, bool release) {
     if (release) return;
     std::lock_guard<std::mutex> lock(g_state.mutex);
     g_state.settings.showWidget = !g_state.settings.showWidget;
-    SaveSettings(SettingsPath);
+    SaveSettingsLocked(SettingsPath);
 }
 static bool InCombat() { return MumbleLink && MumbleLink->Context.IsInCombat; }
 
@@ -373,7 +373,7 @@ static void RenderCombats() {
         changed |= ImGui::Checkbox("Barre des effectifs", &st.showStrip);
         changed |= ImGui::Checkbox("Panneau du combat", &st.showWidget);
         changed |= ImGui::Checkbox("Masquer le widget en combat", &st.hideInCombat);
-        if (changed) SaveSettings(SettingsPath);
+        if (changed) SaveSettingsLocked(SettingsPath);
         ImGui::EndPopup();
     }
     ImGui::Separator();
@@ -515,7 +515,7 @@ static void RenderStrip() {
         if (ImGui::InvisibleButton("forge-strip", ImVec2(iconBox + barWidth, height))) {
             std::lock_guard<std::mutex> lock(g_state.mutex);
             g_state.settings.showWidget = !g_state.settings.showWidget;
-            SaveSettings(SettingsPath);
+            SaveSettingsLocked(SettingsPath);
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Clic : ouvrir / fermer le panneau du combat");
     }
@@ -526,29 +526,76 @@ static void RenderStrip() {
 
 static int WidgetTeam = 0;
 
-// The widget, as WvW Fight Analysis' compact window: title, log name and duration, one tab per team, totals with
+// The right-click menu of the panel: history, what to show, style, close. Called with both mutexes held.
+static void PanelMenu(Settings& st) {
+    if (!ImGui::BeginPopupContextWindow("forge-panel-menu")) return;
+    bool changed = false;
+    if (ImGui::BeginMenu("Historique")) {
+        for (size_t index = 0; index < g_fights.fights.size(); index++) {
+            const ParsedFight& h = g_fights.fights[index];
+            std::string label = (h.wvw ? "McM" : (h.boss.empty() ? "PvE" : h.boss)) + " · " + Clock((int)h.durationMs) + (h.success ? " ✓" : "") + "##" + std::to_string(index);
+            if (ImGui::MenuItem(label.c_str(), nullptr, (int)index == g_fights.selected)) g_fights.selected = (int)index;
+        }
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Affichage")) {
+        changed |= ImGui::MenuItem("Trier par dégâts de classe", nullptr, &st.sortByDamage);
+        changed |= ImGui::MenuItem("Escouade seulement", nullptr, &st.squadOnly);
+        ImGui::Separator();
+        changed |= ImGui::MenuItem("Barres par classe", nullptr, &st.panelBars);
+        changed |= ImGui::MenuItem("Noms courts", nullptr, &st.shortNames);
+        changed |= ImGui::MenuItem("Noms des classes", nullptr, &st.panelNames);
+        changed |= ImGui::MenuItem("Icônes des classes", nullptr, &st.panelIcons);
+        changed |= ImGui::MenuItem("Dégâts par classe", nullptr, &st.panelClassDamage);
+        ImGui::Separator();
+        changed |= ImGui::MenuItem("Total joueurs", nullptr, &st.panelTotal);
+        changed |= ImGui::MenuItem("K/D de l'équipe", nullptr, &st.panelKd);
+        changed |= ImGui::MenuItem("Morts", nullptr, &st.panelDeaths);
+        changed |= ImGui::MenuItem("À terre", nullptr, &st.panelDowns);
+        changed |= ImGui::MenuItem("Dégâts", nullptr, &st.panelDamage);
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Style")) {
+        changed |= ImGui::SliderFloat("Taille du texte", &st.fontScale, 0.8f, 1.6f, "%.1f");
+        changed |= ImGui::SliderFloat("Opacité", &st.panelAlpha, 0.3f, 1.0f, "%.2f");
+        changed |= ImGui::MenuItem("Masquer en combat", nullptr, &st.hideInCombat);
+        changed |= ImGui::MenuItem("Barre des effectifs", nullptr, &st.showStrip);
+        ImGui::EndMenu();
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Fermer le panneau")) { st.showWidget = false; changed = true; }
+    if (changed) SaveSettingsLocked(SettingsPath);
+    ImGui::EndPopup();
+}
+
+// The panel, as WvW Fight Analysis' compact window: title, log name and duration, one tab per team, totals with
 // icons, then a row per specialization with its count, icon, name, damage and a bar in the profession's colour.
-// PvE: boss and outcome, the recorder's DPS, then the squad's damage rows.
+// PvE: boss and outcome, the recorder's DPS, then the squad's damage rows. Right-click: the menu above.
 static void RenderWidget() {
-    Settings st;
-    { std::lock_guard<std::mutex> lock(g_state.mutex); st = g_state.settings; }
+    std::lock_guard<std::mutex> lock(g_state.mutex);
+    Settings& st = g_state.settings;
     if (!st.showWidget || (st.hideInCombat && InCombat())) return;
     std::lock_guard<std::mutex> flock(g_fights.mutex);
     if (NexusLink && NexusLink->Font) ImGui::PushFont((ImFont*)NexusLink->Font);
     const float scale = st.fontScale;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 6 * scale));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6 * scale, 3 * scale));
-    ImGui::SetNextWindowBgAlpha(0.88f);
+    ImGui::SetNextWindowBgAlpha(st.panelAlpha);
     ImGui::SetNextWindowPos(ImVec2(20.0f, 60.0f), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(250.0f * scale, 0.0f), ImGuiCond_Always);
     if (ImGui::Begin("Forge widget", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse)) {
         ImGui::SetWindowFontScale(scale);
+        PanelMenu(st);
         float width = ImGui::GetContentRegionAvail().x;
         ImGui::TextColored(ImVec4(0.93f, 0.94f, 0.95f, 1.0f), "%s", "Forge · Combat");
+        ImGui::SameLine(width - 14 * scale);
+        if (ImGui::SmallButton("×")) { st.showWidget = false; SaveSettingsLocked(SettingsPath); }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Fermer (la barre des effectifs le rouvre)");
         if (g_fights.fights.empty()) {
             ImGui::TextColored(MUTED, "%s", "En attente d'un combat");
         } else {
-            const ParsedFight& f = g_fights.fights.front();
+            if (g_fights.selected >= (int)g_fights.fights.size()) g_fights.selected = 0;
+            const ParsedFight& f = g_fights.fights[g_fights.selected];
             ImGui::TextColored(MUTED, "%s (%s)", f.file.size() > 22 ? f.file.substr(0, 22).c_str() : f.file.c_str(), Clock((int)f.durationMs).c_str());
             if (f.wvw && !f.teams.empty()) {
                 if (WidgetTeam >= (int)f.teams.size()) WidgetTeam = 0;
@@ -565,34 +612,40 @@ static void RenderWidget() {
                 const TeamSummary& t = f.teams[WidgetTeam];
                 bool squadView = t.pov && st.squadOnly;
                 std::vector<SpecCount> rows;
-                int players = t.players, deaths = t.deaths, downs = t.downs;
+                int players = t.players, deaths = t.deaths, downs = t.downs, kills = t.kills;
                 uint64_t damage = t.damage;
                 if (squadView) {
                     std::map<std::string, SpecCount> bySpec;
-                    players = 0; deaths = 0; downs = 0; damage = 0;
-                    for (const auto& line : f.squad) { auto& sc = bySpec[line.spec]; sc.spec = line.spec; sc.count++; sc.damage += line.damage; sc.deaths += line.deaths; sc.downs += line.downs; players++; deaths += line.deaths; downs += line.downs; damage += line.damage; }
+                    players = 0; deaths = 0; downs = 0; damage = 0; kills = 0;
+                    for (const auto& line : f.squad) { auto& sc = bySpec[line.spec]; sc.spec = line.spec; sc.count++; sc.damage += line.damage; sc.deaths += line.deaths; sc.downs += line.downs; players++; deaths += line.deaths; downs += line.downs; damage += line.damage; kills += line.kills; }
                     for (auto& [spec, sc] : bySpec) rows.push_back(sc);
                 } else rows = t.specs;
-                UiIcon("squad", ImGui::GetTextLineHeight()); ImGui::Text("Total : %d", players);
-                UiIcon("death", ImGui::GetTextLineHeight()); ImGui::Text("Morts : %d", deaths);
-                UiIcon("downed", ImGui::GetTextLineHeight()); ImGui::Text("À terre : %d", downs);
-                UiIcon("damage", ImGui::GetTextLineHeight()); ImGui::Text("Dégâts : %s", Thousands((double)damage).c_str());
+                float lh = ImGui::GetTextLineHeight();
+                if (st.panelTotal) { UiIcon("squad", lh); ImGui::Text("Total : %d", players); }
+                if (st.panelKd) { UiIcon("kill", lh); ImGui::Text("K/D : %.1f", deaths ? (double)kills / deaths : (double)kills); }
+                if (st.panelDeaths) { UiIcon("death", lh); ImGui::Text("Morts : %d", deaths); }
+                if (st.panelDowns) { UiIcon("downed", lh); ImGui::Text("À terre : %d", downs); }
+                if (st.panelDamage) { UiIcon("damage", lh); ImGui::Text("Dégâts : %s", Thousands((double)damage).c_str()); }
                 ImGui::Separator();
                 std::sort(rows.begin(), rows.end(), [&](const SpecCount& a, const SpecCount& b) { return st.sortByDamage ? a.damage > b.damage : (a.count != b.count ? a.count > b.count : a.damage > b.damage); });
                 uint64_t maxDamage = 1; int maxCount = 1;
                 for (const auto& sc : rows) { maxDamage = std::max(maxDamage, sc.damage); maxCount = std::max(maxCount, sc.count); }
                 for (const auto& sc : rows) {
                     ImVec2 pos = ImGui::GetCursorScreenPos();
-                    float height = ImGui::GetTextLineHeight() + 4 * scale;
+                    float height = lh + 4 * scale;
                     ImDrawList* draw = ImGui::GetWindowDrawList();
                     ImVec4 colour = ProfessionColour(sc.spec);
                     float fraction = st.sortByDamage ? (float)sc.damage / (float)maxDamage : (float)sc.count / (float)maxCount;
-                    draw->AddRectFilled(pos, ImVec2(pos.x + width * std::max(0.05f, std::min(1.0f, fraction)), pos.y + height), ImGui::GetColorU32(ImVec4(colour.x * 0.55f, colour.y * 0.55f, colour.z * 0.55f, 0.9f)), 2.0f);
+                    if (st.panelBars) draw->AddRectFilled(pos, ImVec2(pos.x + width * std::max(0.05f, std::min(1.0f, fraction)), pos.y + height), ImGui::GetColorU32(ImVec4(colour.x * 0.55f, colour.y * 0.55f, colour.z * 0.55f, 0.9f)), 2.0f);
                     ImGui::SetCursorScreenPos(ImVec2(pos.x + 4 * scale, pos.y + 2 * scale));
                     ImGui::Text("%d", sc.count);
                     ImGui::SameLine(0, 5 * scale);
-                    SpecIcon(sc.spec, ImGui::GetTextLineHeight());
-                    ImGui::Text("%s (%s)", st.shortNames ? SpecShort(sc.spec).c_str() : sc.spec.c_str(), Thousands((double)sc.damage).c_str());
+                    if (st.panelIcons) SpecIcon(sc.spec, lh);
+                    std::string text;
+                    if (st.panelNames) text = st.shortNames ? SpecShort(sc.spec) : sc.spec;
+                    if (st.panelClassDamage) text += (text.empty() ? "" : " ") + std::string("(") + Thousands((double)sc.damage) + ")";
+                    if (!text.empty()) ImGui::TextUnformatted(text.c_str());
+                    else ImGui::Dummy(ImVec2(1, lh));
                     ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + height + 2 * scale));
                 }
             } else {
@@ -616,9 +669,9 @@ static void RenderWidget() {
                     float height = ImGui::GetTextLineHeight() + 4 * scale;
                     ImDrawList* draw = ImGui::GetWindowDrawList();
                     ImVec4 colour = line.pov ? SKY : ProfessionColour(line.spec);
-                    draw->AddRectFilled(pos, ImVec2(pos.x + width * std::max(0.05f, (float)line.damage / (float)top), pos.y + height), ImGui::GetColorU32(ImVec4(colour.x * 0.55f, colour.y * 0.55f, colour.z * 0.55f, 0.9f)), 2.0f);
+                    if (st.panelBars) draw->AddRectFilled(pos, ImVec2(pos.x + width * std::max(0.05f, (float)line.damage / (float)top), pos.y + height), ImGui::GetColorU32(ImVec4(colour.x * 0.55f, colour.y * 0.55f, colour.z * 0.55f, 0.9f)), 2.0f);
                     ImGui::SetCursorScreenPos(ImVec2(pos.x + 4 * scale, pos.y + 2 * scale));
-                    SpecIcon(line.spec, ImGui::GetTextLineHeight());
+                    if (st.panelIcons) SpecIcon(line.spec, ImGui::GetTextLineHeight());
                     ImGui::Text("%s (%s)", line.name.size() > 14 ? line.name.substr(0, 14).c_str() : line.name.c_str(), Thousands(line.damage / seconds).c_str());
                     ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + height + 2 * scale));
                 }
@@ -653,7 +706,7 @@ static void RenderWindow() {
                         std::string text = roster.name + (roster.live ? "  ● en direct" : roster.tonight ? "  · ce soir" : "");
                         if (ImGui::Selectable(text.c_str(), roster.id == n.rosterId) && roster.id != n.rosterId) {
                             g_state.settings.rosterId = roster.id;
-                            SaveSettings(SettingsPath);
+                            SaveSettingsLocked(SettingsPath);
                             PollNow = true;
                         }
                     }
@@ -797,7 +850,7 @@ static void RenderOptions() {
     ImGui::InputText("Adresse de Forge", UrlBuffer, sizeof(UrlBuffer));
     { std::lock_guard<std::mutex> flock(g_fights.mutex); if (!LogsBuffer[0]) snprintf(LogsBuffer, sizeof(LogsBuffer), "%s", Narrow(g_fights.logsDir).c_str()); }
     ImGui::InputText("Dossier des logs arcdps", LogsBuffer, sizeof(LogsBuffer));
-    { std::lock_guard<std::mutex> lock(g_state.mutex); bool changed = ImGui::Checkbox("Barre des effectifs (un clic ouvre le panneau)", &g_state.settings.showStrip); changed |= ImGui::Checkbox("Panneau du combat", &g_state.settings.showWidget); changed |= ImGui::Checkbox("Masquer le widget en combat", &g_state.settings.hideInCombat); if (changed) SaveSettings(SettingsPath); }
+    { std::lock_guard<std::mutex> lock(g_state.mutex); bool changed = ImGui::Checkbox("Barre des effectifs (un clic ouvre le panneau)", &g_state.settings.showStrip); changed |= ImGui::Checkbox("Panneau du combat", &g_state.settings.showWidget); changed |= ImGui::Checkbox("Masquer le widget en combat", &g_state.settings.hideInCombat); if (changed) SaveSettingsLocked(SettingsPath); }
     float scale;
     { std::lock_guard<std::mutex> lock(g_state.mutex); scale = g_state.settings.fontScale; }
     if (ImGui::SliderFloat("Taille du texte", &scale, 0.8f, 1.6f, "%.1f")) { std::lock_guard<std::mutex> lock(g_state.mutex); g_state.settings.fontScale = scale; }
@@ -883,7 +936,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 5, 5, 0 };
+    Def.Version = { 0, 5, 6, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
