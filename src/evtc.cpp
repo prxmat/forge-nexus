@@ -1,6 +1,8 @@
 #include "evtc.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#endif
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -57,6 +59,7 @@ const std::unordered_map<uint16_t, const char*> BOSSES = {
 
 std::vector<char> ReadWholeFile(const std::wstring& path) {
     std::vector<char> bytes;
+#ifdef _WIN32
     HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return bytes;
     LARGE_INTEGER size{};
@@ -68,6 +71,12 @@ std::vector<char> ReadWholeFile(const std::wstring& path) {
         bytes.resize(done);
     }
     CloseHandle(file);
+#else
+    // Development builds on other systems (the parser's test tool).
+    std::string narrow(path.begin(), path.end());
+    std::ifstream file(narrow, std::ios::binary);
+    bytes.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+#endif
     return bytes;
 }
 
