@@ -282,9 +282,10 @@ ParsedFight ParseEvtcFile(const std::wstring& path) {
     std::map<std::string, std::map<std::string, SpecCount>> teamSpecs;
     for (const auto& e : events) {
         if (e.isStateChange == SC_ChangeDead || e.isStateChange == SC_ChangeDown) {
-            auto it = byInstid.find(e.srcInstid);
-            if (it == byInstid.end() || !it->second->player) continue;
-            Agent& agent = *it->second;
+            // By address: allies outside the squad have no damage event of their own, so no instid mapping.
+            auto it = agents.find(e.srcAgent);
+            if (it == agents.end() || !it->second.player) continue;
+            Agent& agent = it->second;
             if (e.isStateChange == SC_ChangeDead) lineOf(agent).deaths++; else lineOf(agent).downs++;
             if (fight.wvw && !agent.team.empty()) { auto& team = teams[agent.team]; auto& spec = teamSpecs[agent.team][agent.spec]; if (e.isStateChange == SC_ChangeDead) { team.deaths++; spec.deaths++; } else { team.downs++; spec.downs++; } }
             continue;
@@ -292,11 +293,18 @@ ParsedFight ParseEvtcFile(const std::wstring& path) {
         if (e.isStateChange != SC_None || e.isActivation != 0 || e.isBuffRemove != 0) continue;
         if (e.result != R_Normal && e.result != R_Critical && e.result != R_Glance && e.result != R_KillingBlow) continue;
         int32_t damage = e.buff == 0 ? e.value : e.buff == 1 ? e.buffDmg : 0;
-        auto src = byInstid.find(e.srcInstid);
-        if (src == byInstid.end() || !src->second->player) continue;
-        Agent& attacker = *src->second;
-        auto dst = byInstid.find(e.dstInstid);
-        Agent* target = dst == byInstid.end() ? nullptr : dst->second;
+        auto src = agents.find(e.srcAgent);
+        if (src == agents.end()) continue;
+        Agent* attackerPtr = &src->second;
+        if (!attackerPtr->player) {
+            // A minion's damage is its owner's, as Elite Insights counts it.
+            auto master = e.srcMasterInstid ? byInstid.find(e.srcMasterInstid) : byInstid.end();
+            if (master == byInstid.end() || !master->second->player) continue;
+            attackerPtr = master->second;
+        }
+        Agent& attacker = *attackerPtr;
+        auto dst = agents.find(e.dstAgent);
+        Agent* target = dst == agents.end() ? nullptr : &dst->second;
         bool vsPlayer = target && target->player;
         if (fight.wvw) {
             if (!vsPlayer || attacker.team.empty() || target->team == attacker.team) continue;
@@ -319,12 +327,14 @@ ParsedFight ParseEvtcFile(const std::wstring& path) {
         if (!agent.team.empty()) fight.playersWithTeam++;
         if (agent.seen) fight.playersSeen++;
         bool squad = agent.subgroup > 0 && (agent.team.empty() || agent.team == povTeam || !fight.wvw);
-        if (fight.wvw && !agent.team.empty() && agent.seen) {
+        // Every player of the agent table counts, as WvW Fight Analysis does: arcdps only logs the squad's own
+        // hits, so allies outside it never appear as a source.
+        if (fight.wvw && !agent.team.empty()) {
             auto& team = teams[agent.team];
             team.players++;
             teamSpecs[agent.team][agent.spec].count++;
         }
-        if (squad && agent.seen) fight.squad.push_back(lineOf(agent));
+        if (squad) fight.squad.push_back(lineOf(agent));
         if (address == povAddress) { fight.me = lineOf(agent); fight.hasMe = true; }
     }
     for (auto& [name, team] : teams) {
