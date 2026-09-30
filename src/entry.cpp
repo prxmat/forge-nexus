@@ -235,7 +235,7 @@ static void ArcdpsLine(bool always) {
         ImGui::SameLine();
     }
     if (bad || always) { if (ImGui::SmallButton("Revérifier")) ArcCheckNow = true; }
-    if (always && verdict != ArcVerdict::Absent && verdict != ArcVerdict::Unknown && !LiveEverEvent()) Wrapped("Combat en direct : installe « ArcDPS Integration » dans la bibliothèque Nexus. Sans lui, les combats n'apparaissent qu'à la fin, depuis le log.");
+    if (always && verdict != ArcVerdict::Absent && verdict != ArcVerdict::Unknown) ImGui::TextColored(MUTED, "%s", LiveEverEvent() ? "Combat en direct : événements arcdps reçus." : "Combat en direct : aucun événement arcdps reçu pour l'instant (Nexus relaie via addons\\Nexus\\arcdps_integration64.dll, déployé tout seul).");
 }
 static const char* ArcdpsShort() {
     switch (ArcdpsVerdict()) {
@@ -1029,7 +1029,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 7, 0, 0 };
+    Def.Version = { 0, 7, 1, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
