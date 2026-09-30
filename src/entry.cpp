@@ -190,8 +190,8 @@ static void BarRow(const std::string& label, float fraction, const ImVec4& colou
 static void RenderStats() {
     if (!g_state.hasPve && !g_state.hasWvw) {
         Callout(MUTED, "Rien encore ce soir : les chiffres de Forge arrivent 20 à 40 s après chaque log envoyé par Forge Uploader. L'onglet Combats, lui, lit les logs tout de suite.");
-        if (g_state.busy) ImGui::TextColored(MUTED, "%s", "Nouvelle soirée McM…");
-        else if (ImGui::SmallButton("Nouvelle soirée McM")) std::thread([]() { StartWvwEvening(); }).detach();
+        if (g_state.busy) ImGui::TextColored(MUTED, "%s", "Nouvelle sortie McM…");
+        else if (ImGui::SmallButton("Nouvelle sortie McM")) std::thread([]() { StartWvwEvening(); }).detach();
         return;
     }
     if (g_state.hasPve) {
@@ -218,9 +218,9 @@ static void RenderStats() {
         const WvwStats& w = g_state.wvw;
         if (g_state.hasPve) { ImGui::Separator(); ImGui::Spacing(); }
         SectionTitle("McM · Forge", w.title);
-        if (g_state.busy) ImGui::TextColored(MUTED, "%s", "Nouvelle soirée McM…");
-        else if (ImGui::SmallButton("Nouvelle soirée McM")) std::thread([]() { StartWvwEvening(); }).detach();
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Les combats envoyés à partir de maintenant vont dans une nouvelle soirée (Forge en ouvre aussi une après 2 h sans combat).");
+        if (g_state.busy) ImGui::TextColored(MUTED, "%s", "Nouvelle sortie McM…");
+        else if (ImGui::SmallButton("Nouvelle sortie McM")) std::thread([]() { StartWvwEvening(); }).detach();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Les combats envoyés à partir de maintenant vont dans une nouvelle sortie (Forge en ouvre aussi une après 2 h sans combat).");
         if (!g_state.error.empty()) ImGui::TextColored(RED, "%s", g_state.error.c_str());
         std::vector<Kpi> tiles;
         tiles.push_back({ std::to_string(w.fights), "Combats", Clock(w.seconds * 1000) + " de combat", SKY });
@@ -761,7 +761,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 5, 0, 0 };
+    Def.Version = { 0, 5, 1, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;

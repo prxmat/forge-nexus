@@ -15,9 +15,9 @@ La fenêtre suit Forge toutes les 5 secondes : quand un lead avance (depuis le j
 
 - **Combats** : chaque log lu **en local dès qu’arcdps l’écrit**, sans attendre l’envoi. McM : un onglet par équipe (couleur), totaux (joueurs, kills, morts, à terre, dégâts), une ligne par spécialisation (compte, icône, dégâts, barre à la couleur de la classe), « Affichage » (tri par dégâts, escouade seulement, noms courts, widget) et « Historique » (30 combats). PvE : boss, kill ou wipe (% restant), ton DPS et ton rang, morts de l’escouade, dégâts par joueur en barres.
 - **Widget** : une ligne près du bord de l’écran avec le dernier combat : effectifs des équipes empilés en couleur et kills/morts en McM, boss / résultat / ton DPS et ton rang en PvE. Raccourci `KB_FORGE_WIDGET` dans Nexus, option « masquer en combat ».
-- **Nouvelle soirée McM** (Stats Forge) : les combats envoyés ensuite vont dans une nouvelle soirée sur Forge ; Forge en ouvre aussi une après 2 h sans combat.
+- **Nouvelle sortie McM** (Stats Forge) : les combats envoyés ensuite vont dans une nouvelle sortie sur Forge ; Forge en ouvre aussi une après 2 h sans combat.
 
-- **Stats Forge** : ce que Forge a calculé du dernier essai et de la soirée McM (revue, stabilité, constats), 20 à 40 s après l’envoi par Forge Uploader.
+- **Stats Forge** : ce que Forge a calculé du dernier essai et de la sortie McM (revue, stabilité, constats), 20 à 40 s après l’envoi par Forge Uploader.
 - **En direct** : boss en cours, ta place, l’essentiel, les mécaniques clés (premier conseil), le boss suivant.
 - **Strats** : la compo demandée par le guide, ses sections (phases, CM), toutes les mécaniques avec explications et conseils : pour redonner la strat à la voix.
 - **Compo** : qui tient quelle place sur ce boss, et sur le suivant : pour annoncer les changements de spé.
