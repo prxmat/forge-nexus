@@ -52,6 +52,7 @@ static void ToggleWidget(const char*, bool release) {
     SaveSettingsLocked(SettingsPath);
 }
 static bool InCombat() { return MumbleLink && MumbleLink->Context.IsInCombat; }
+static std::string VersionText() { return std::to_string(Def.Version.Major) + "." + std::to_string(Def.Version.Minor) + "." + std::to_string(Def.Version.Build); }
 static void OnArcEventLocal(void*) { ArcdpsNoteEvent(); }
 static void OnArcEventSquad(void* payload) { ArcdpsNoteEvent(); LiveOnEvent(payload); }
 static bool OnWvwMap() { return MumbleLink && MumbleLink->Context.MapType >= Mumble::EMapType::WvW_EternalBattlegrounds && MumbleLink->Context.MapType <= Mumble::EMapType::WvW_ObsidianSanctum; }
@@ -777,7 +778,8 @@ static void RenderWindow() {
     if (!show) return;
     if (NexusLink && NexusLink->Font) ImGui::PushFont((ImFont*)NexusLink->Font);
     ImGui::SetNextWindowSize(ImVec2(520, 620), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(WINDOW, &show, ImGuiWindowFlags_NoCollapse)) {
+    std::string title = std::string("Forge ") + VersionText() + "###" + WINDOW;
+    if (ImGui::Begin(title.c_str(), &show, ImGuiWindowFlags_NoCollapse)) {
         std::lock_guard<std::mutex> lock(g_state.mutex);
         ImGui::SetWindowFontScale(g_state.settings.fontScale);
         if (!g_state.hasNight) {
@@ -928,6 +930,7 @@ static std::string Narrow(const std::wstring& text) { if (text.empty()) return "
 static std::wstring Widen(const std::string& text) { if (text.empty()) return L""; int n = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), (int)text.size(), nullptr, 0); std::wstring out(n, L'\0'); MultiByteToWideChar(CP_UTF8, 0, text.c_str(), (int)text.size(), &out[0], n); return out; }
 
 static void RenderOptions() {
+    ImGui::TextColored(MUTED, "Forge addon %s", VersionText().c_str());
     {
         std::lock_guard<std::mutex> lock(g_state.mutex);
         if (!TokenBuffer[0] && !g_state.settings.token.empty()) snprintf(TokenBuffer, sizeof(TokenBuffer), "%s", g_state.settings.token.c_str());
@@ -1030,7 +1033,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 7, 2, 0 };
+    Def.Version = { 0, 7, 3, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
