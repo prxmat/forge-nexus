@@ -625,7 +625,8 @@ static void PanelMenu(Settings& st) {
     }
     if (ImGui::BeginMenu("Affichage")) {
         changed |= ImGui::MenuItem("Trier par dégâts de classe", nullptr, &st.sortByDamage);
-        changed |= ImGui::MenuItem("Escouade seulement", nullptr, &st.squadOnly);
+        changed |= ImGui::MenuItem("Alliés hors escouade : afficher", nullptr, &st.panelAllies);
+        changed |= ImGui::MenuItem("Alliés hors escouade : compter dans le total", nullptr, &st.panelAlliesTotal);
         ImGui::Separator();
         changed |= ImGui::MenuItem("Barres par classe", nullptr, &st.panelBars);
         changed |= ImGui::MenuItem("Noms courts", nullptr, &st.shortNames);
@@ -697,16 +698,19 @@ static void RenderWidget() {
                 }
                 ImGui::Separator();
                 const TeamSummary& t = f.teams[WidgetTeam];
-                bool squadView = t.pov && st.squadOnly;
-                std::vector<SpecCount> rows;
-                int players = t.players, deaths = t.deaths, downs = t.downs, kills = t.kills;
-                uint64_t damage = t.damage;
-                if (squadView) {
+                // Own team: the squad alone, or with the allies around it, for the rows and for the totals as set.
+                std::vector<SpecCount> squadRows;
+                int squadPlayers = 0, squadDeaths = 0, squadDowns = 0, squadKills = 0;
+                uint64_t squadDamage = 0;
+                if (t.pov) {
                     std::map<std::string, SpecCount> bySpec;
-                    players = 0; deaths = 0; downs = 0; damage = 0; kills = 0;
-                    for (const auto& line : f.squad) { auto& sc = bySpec[line.spec]; sc.spec = line.spec; sc.count++; sc.damage += line.damage; sc.deaths += line.deaths; sc.downs += line.downs; players++; deaths += line.deaths; downs += line.downs; damage += line.damage; kills += line.kills; }
-                    for (auto& [spec, sc] : bySpec) rows.push_back(sc);
-                } else rows = t.specs;
+                    for (const auto& line : f.squad) { auto& sc = bySpec[line.spec]; sc.spec = line.spec; sc.count++; sc.damage += line.damage; sc.deaths += line.deaths; sc.downs += line.downs; squadPlayers++; squadDeaths += line.deaths; squadDowns += line.downs; squadDamage += line.damage; squadKills += line.kills; }
+                    for (auto& [spec, sc] : bySpec) squadRows.push_back(sc);
+                }
+                bool alliesInRows = !t.pov || st.panelAllies, alliesInTotals = !t.pov || st.panelAlliesTotal;
+                std::vector<SpecCount> rows = alliesInRows ? t.specs : squadRows;
+                int players = alliesInTotals ? t.players : squadPlayers, deaths = alliesInTotals ? t.deaths : squadDeaths, downs = alliesInTotals ? t.downs : squadDowns, kills = alliesInTotals ? t.kills : squadKills;
+                uint64_t damage = alliesInTotals ? t.damage : squadDamage;
                 float lh = ImGui::GetTextLineHeight();
                 if (st.panelTotal) { UiIcon("squad", lh); ImGui::Text("Total : %d", players); }
                 if (st.panelKd) { UiIcon("kill", lh); ImGui::Text("K/D : %.1f", deaths ? (double)kills / deaths : (double)kills); }
@@ -1033,7 +1037,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 7, 3, 0 };
+    Def.Version = { 0, 7, 4, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;

@@ -74,6 +74,8 @@ struct Settings {
     // Panel contents, as Fight Analysis lets one pick them.
     bool panelBars = true, panelNames = true, panelIcons = true, panelClassDamage = true, panelTotal = true, panelKd = false, panelDeaths = true, panelDowns = true, panelDamage = true;
     float panelAlpha = 0.88f;
+    // Own team in the panel: allies outside the squad in the rows, and in the totals.
+    bool panelAllies = true, panelAlliesTotal = true;
     // Where the strip and the panel sit on screen, once moved.
     float stripX = 330.0f, stripY = 30.0f, panelX = 20.0f, panelY = 60.0f;
     // The game's build seen last session: a change means a game update, which may have broken arcdps.

@@ -198,7 +198,7 @@ bool LiveSnapshot(ParsedFight& out) {
     const LiveAgent* boss = nullptr;
     for (const auto& [id, a] : s.agents) {
         if (!a.player) { if (a.seen && a.taken && (!boss || a.taken > boss->taken)) boss = &a; continue; }
-        if (!a.seen && !(a.subgroup > 0 && !f.wvw)) continue;
+        if (!a.seen && a.subgroup <= 0) continue; // Squad members count from the start; others once they act.
         std::string colour = colourOf(a.team);
         if (f.wvw && !colour.empty()) {
             auto& team = teams[colour];
