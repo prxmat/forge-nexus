@@ -462,14 +462,17 @@ static void RenderWidget() {
     { std::lock_guard<std::mutex> lock(g_state.mutex); st = g_state.settings; }
     if (!st.showWidget || (st.hideInCombat && InCombat())) return;
     std::lock_guard<std::mutex> flock(g_fights.mutex);
-    if (g_fights.fights.empty()) return;
-    const ParsedFight& f = g_fights.fights.front();
     if (NexusLink && NexusLink->Font) ImGui::PushFont((ImFont*)NexusLink->Font);
     ImGui::SetNextWindowBgAlpha(0.75f);
     ImGui::SetNextWindowPos(ImVec2(300.0f, 40.0f), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Forge widget", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse)) {
         ImGui::SetWindowFontScale(st.fontScale);
-        if (f.wvw && !f.teams.empty()) {
+        static const ParsedFight none{};
+        const ParsedFight& f = g_fights.fights.empty() ? none : g_fights.fights.front();
+        if (g_fights.fights.empty()) {
+            UiIcon("squad", ImGui::GetTextLineHeight());
+            ImGui::TextColored(MUTED, "%s", "Forge · en attente d'un combat (déplace-moi)");
+        } else if (f.wvw && !f.teams.empty()) {
             UiIcon("squad", ImGui::GetTextLineHeight());
             float total = 0;
             for (const auto& t : f.teams) total += t.players;
@@ -761,7 +764,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 5, 1, 0 };
+    Def.Version = { 0, 5, 2, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
