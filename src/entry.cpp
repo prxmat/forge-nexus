@@ -712,11 +712,14 @@ static void RenderWidget() {
                 int players = alliesInTotals ? t.players : squadPlayers, deaths = alliesInTotals ? t.deaths : squadDeaths, downs = alliesInTotals ? t.downs : squadDowns, kills = alliesInTotals ? t.kills : squadKills;
                 uint64_t damage = alliesInTotals ? t.damage : squadDamage;
                 float lh = ImGui::GetTextLineHeight();
-                if (st.panelTotal) { UiIcon("squad", lh); ImGui::Text("Total : %d", players); }
+                // Own team with the allies in: each total also split squad / allies.
+                bool split = t.pov && alliesInTotals && st.panelAllies && t.players > squadPlayers;
+                auto part = [&](int squad, int all) { return split ? " (" + std::to_string(squad) + " + " + std::to_string(all - squad) + ")" : std::string(); };
+                if (st.panelTotal) { UiIcon("squad", lh); ImGui::Text("Total : %d%s", players, part(squadPlayers, players).c_str()); if (split && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "escouade + alliés hors escouade"); }
                 if (st.panelKd) { UiIcon("kill", lh); ImGui::Text("K/D : %.1f", deaths ? (double)kills / deaths : (double)kills); }
-                if (st.panelDeaths) { UiIcon("death", lh); ImGui::Text("Morts : %d", deaths); }
-                if (st.panelDowns) { UiIcon("downed", lh); ImGui::Text("À terre : %d", downs); }
-                if (st.panelDamage) { UiIcon("damage", lh); ImGui::Text("Dégâts : %s", Thousands((double)damage).c_str()); }
+                if (st.panelDeaths) { UiIcon("death", lh); ImGui::Text("Morts : %d%s", deaths, part(squadDeaths, deaths).c_str()); }
+                if (st.panelDowns) { UiIcon("downed", lh); ImGui::Text("À terre : %d%s", downs, part(squadDowns, downs).c_str()); }
+                if (st.panelDamage) { UiIcon("damage", lh); ImGui::Text("Dégâts : %s%s", Thousands((double)damage).c_str(), split ? (" (" + Thousands((double)squadDamage) + " + " + Thousands((double)(damage - squadDamage)) + ")").c_str() : ""); }
                 ImGui::Separator();
                 std::sort(rows.begin(), rows.end(), [&](const SpecCount& a, const SpecCount& b) { return st.sortByDamage ? a.damage > b.damage : (a.count != b.count ? a.count > b.count : a.damage > b.damage); });
                 uint64_t maxDamage = 1; int maxCount = 1;
@@ -1037,7 +1040,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 7, 4, 0 };
+    Def.Version = { 0, 7, 5, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
