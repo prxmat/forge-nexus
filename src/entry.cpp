@@ -23,11 +23,12 @@ static const char* TEX_ICON = "TEX_FORGE_ICON";
 static const char* TEX_ICON_HOVER = "TEX_FORGE_ICON_HOVER";
 static const char* QA_ICON = "QA_FORGE";
 static const char* WINDOW = "Forge";
+// Nexus flips this on Escape (GUI_RegisterCloseOnEscape keeps the pointer): the window's own visibility flag.
+static bool WindowVisible = true;
 
 static void ToggleWindow(const char*, bool release) {
     if (release) return;
-    std::lock_guard<std::mutex> lock(g_state.mutex);
-    g_state.settings.showWindow = !g_state.settings.showWindow;
+    WindowVisible = !WindowVisible;
 }
 
 static void PollLoop() {
@@ -88,8 +89,7 @@ static void LeadButton(const char* label, const char* op, const std::string& bos
 }
 
 static void RenderWindow() {
-    bool show;
-    { std::lock_guard<std::mutex> lock(g_state.mutex); show = g_state.settings.showWindow; }
+    bool show = WindowVisible;
     if (!show) return;
     if (NexusLink && NexusLink->Font) ImGui::PushFont((ImFont*)NexusLink->Font);
     ImGui::SetNextWindowSize(ImVec2(520, 620), ImGuiCond_FirstUseEver);
@@ -222,8 +222,7 @@ static void RenderWindow() {
     }
     ImGui::End();
     if (NexusLink && NexusLink->Font) ImGui::PopFont();
-    std::lock_guard<std::mutex> lock(g_state.mutex);
-    if (g_state.settings.showWindow != show) { g_state.settings.showWindow = show; SaveSettings(SettingsPath); }
+    WindowVisible = show;
 }
 
 static char TokenBuffer[128]{};
@@ -265,19 +264,23 @@ static void AddonLoad(AddonAPI_t* api) {
     SettingsPath = std::string(API->Paths_GetAddonDirectory("Forge")) + "\\settings.json";
     CreateDirectoryA(API->Paths_GetAddonDirectory("Forge"), nullptr);
     LoadSettings(SettingsPath);
+    { std::lock_guard<std::mutex> lock(g_state.mutex); WindowVisible = g_state.settings.showWindow; }
     API->InputBinds_RegisterWithString(KB_TOGGLE, ToggleWindow, "CTRL+SHIFT+F");
     API->Textures_LoadFromMemory(TEX_ICON, (void*)FORGE_ICON_PNG, FORGE_ICON_PNG_SIZE, ReceiveTexture);
     API->Textures_LoadFromMemory(TEX_ICON_HOVER, (void*)FORGE_ICON_PNG, FORGE_ICON_PNG_SIZE, ReceiveTexture);
     API->QuickAccess_Add(QA_ICON, TEX_ICON, TEX_ICON_HOVER, KB_TOGGLE, "Forge : la soirée en direct");
     API->GUI_Register(RT_Render, RenderWindow);
     API->GUI_Register(RT_OptionsRender, RenderOptions);
-    API->GUI_RegisterCloseOnEscape(WINDOW, nullptr);
+    API->GUI_RegisterCloseOnEscape(WINDOW, &WindowVisible);
     Running = true;
     Poller = std::thread(PollLoop);
     API->Log(LOGL_INFO, "Forge", "Forge chargé.");
 }
 
 static void AddonUnload() {
+    API->GUI_DeregisterCloseOnEscape(WINDOW);
+    { std::lock_guard<std::mutex> lock(g_state.mutex); g_state.settings.showWindow = WindowVisible; }
+    SaveSettings(SettingsPath);
     Running = false;
     if (Poller.joinable()) Poller.join();
     API->GUI_Deregister(RenderWindow);
@@ -293,7 +296,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 2, 0, 0 };
+    Def.Version = { 0, 2, 1, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
