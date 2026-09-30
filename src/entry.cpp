@@ -210,6 +210,11 @@ static void RenderWindow() {
                     ImGui::SameLine();
                     ImGui::TextColored(SKY, "%s", cur.hasPlace ? cur.myPlace.c_str() : "—");
                     ImGui::Spacing();
+                    for (const auto& goal : cur.goals) {
+                        ImGui::TextColored(goal.met ? GREEN : GOLD, "%s %s", goal.met ? "✓" : "◎", goal.label.c_str());
+                        ImGui::TextColored(MUTED, "   %s", goal.state.c_str());
+                    }
+                    if (!cur.goals.empty()) ImGui::Spacing();
                     if (cur.hasGuide) {
                         ImGui::TextColored(GOLD, "%s", "L'essentiel");
                         for (const auto& line : cur.essentials) Bullet(line);
@@ -347,7 +352,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 3, 0, 0 };
+    Def.Version = { 0, 3, 1, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;

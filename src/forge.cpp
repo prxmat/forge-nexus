@@ -122,6 +122,7 @@ static LiveBoss ReadBoss(const json& value) {
         for (const auto& item : guide["mechanics"]) boss.mechanics.push_back({ item.value("name", ""), item.contains("aka") && item["aka"].is_string() ? item["aka"].get<std::string>() : "", Strings(item["body"]), Strings(item["tips"]) });
         for (const auto& item : guide["sections"]) boss.sections.push_back({ item.value("title", ""), Strings(item["body"]), Strings(item["tips"]) });
     }
+    if (value.contains("goals")) for (const auto& item : value["goals"]) boss.goals.push_back({ item.value("label", ""), item.value("state", ""), item.value("met", false) });
     for (const auto& item : value["slots"]) boss.slots.push_back({ item.value("label", ""), item.contains("player") && item["player"].is_string() ? item["player"].get<std::string>() : "", item.value("me", false) });
     return boss;
 }

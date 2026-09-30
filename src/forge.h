@@ -13,6 +13,8 @@ struct LiveBoss {
     std::vector<Section> sections;
     struct Slot { std::string label, player; bool me = false; };
     std::vector<Slot> slots;
+    struct Goal { std::string label, state; bool met = false; };
+    std::vector<Goal> goals;
     bool hasGuide = false;
     bool hasPlace = false;
 };
