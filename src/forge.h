@@ -23,6 +23,8 @@ struct LiveNight {
     int killed = 0;
     struct Boss { std::string id, label; bool killed = false, on = false; };
     std::vector<Boss> bosses;
+    struct Roster { std::string id, name; bool tonight = false, live = false; };
+    std::vector<Roster> rosters;
     LiveBoss current, next;
     bool hasCurrent = false, hasNext = false;
 };
@@ -30,6 +32,8 @@ struct LiveNight {
 struct Settings {
     std::string forgeUrl = "https://forge-lbm.vercel.app";
     std::string token;
+    // The roster chosen in the window when the member plays in several; empty = Forge's pick.
+    std::string rosterId;
     bool showWindow = true;
     float fontScale = 1.0f;
 };

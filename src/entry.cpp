@@ -101,8 +101,23 @@ static void RenderWindow() {
             if (!g_state.tokenOk) Wrapped("Options Nexus → Forge : colle ton token Forge Uploader (Forge → Mon suivi → Réglages → Forge Uploader).");
         } else {
             const LiveNight& n = g_state.night;
-            // Header: roster, day, phase.
-            ImGui::TextColored(MUTED, "%s · %s", n.rosterName.c_str(), n.day.c_str());
+            // Header: the roster (a combo when the member plays in several), day, phase.
+            if (n.rosters.size() > 1) {
+                ImGui::SetNextItemWidth(220);
+                if (ImGui::BeginCombo("##roster", n.rosterName.c_str())) {
+                    for (const auto& roster : n.rosters) {
+                        std::string text = roster.name + (roster.live ? "  ● en direct" : roster.tonight ? "  · ce soir" : "");
+                        if (ImGui::Selectable(text.c_str(), roster.id == n.rosterId) && roster.id != n.rosterId) {
+                            g_state.settings.rosterId = roster.id;
+                            SaveSettings(SettingsPath);
+                            PollNow = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+                ImGui::TextColored(MUTED, "%s", n.day.c_str());
+            } else ImGui::TextColored(MUTED, "%s · %s", n.rosterName.c_str(), n.day.c_str());
             ImGui::SameLine();
             if (n.phase == "live") ImGui::TextColored(RED, "%s", "● EN DIRECT");
             else if (n.phase == "ended") ImGui::TextColored(GREEN, "%s", "Soirée terminée");
@@ -278,7 +293,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 1, 1, 0 };
+    Def.Version = { 0, 2, 0, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;

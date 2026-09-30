@@ -81,6 +81,7 @@ void LoadSettings(const std::string& path) {
         std::lock_guard<std::mutex> lock(g_state.mutex);
         g_state.settings.forgeUrl = data.value("forge_url", g_state.settings.forgeUrl);
         g_state.settings.token = data.value("token", "");
+        g_state.settings.rosterId = data.value("roster_id", "");
         g_state.settings.showWindow = data.value("show_window", true);
         g_state.settings.fontScale = data.value("font_scale", 1.0f);
     } catch (...) {}
@@ -92,6 +93,7 @@ void SaveSettings(const std::string& path) {
         std::lock_guard<std::mutex> lock(g_state.mutex);
         data["forge_url"] = g_state.settings.forgeUrl;
         data["token"] = g_state.settings.token;
+        data["roster_id"] = g_state.settings.rosterId;
         data["show_window"] = g_state.settings.showWindow;
         data["font_scale"] = g_state.settings.fontScale;
     }
@@ -137,7 +139,7 @@ bool PollNight() {
         return false;
     }
     std::string body;
-    int status = HttpGet(settings.forgeUrl + "/api/live/night", settings.token, body);
+    int status = HttpGet(settings.forgeUrl + "/api/live/night" + (settings.rosterId.empty() ? "" : "?roster=" + settings.rosterId), settings.token, body);
     std::lock_guard<std::mutex> lock(g_state.mutex);
     if (status == 401) { g_state.status = "Token Forge inconnu ou révoqué."; g_state.tokenOk = false; g_state.hasNight = false; return false; }
     if (status != 200) {
@@ -165,6 +167,7 @@ bool PollNight() {
         night.version = n.contains("version") && n["version"].is_string() ? n["version"].get<std::string>() : "";
         night.liveUrl = n.value("liveUrl", "");
         night.killed = n.value("killed", 0);
+        if (n.contains("rosters")) for (const auto& item : n["rosters"]) night.rosters.push_back({ item.value("id", ""), item.value("name", ""), item.value("tonight", false), item.value("live", false) });
         if (n.contains("bosses")) for (const auto& item : n["bosses"]) night.bosses.push_back({ item.value("id", ""), item.value("label", ""), item.value("killed", false), item.value("on", false) });
         if (n.contains("current") && n["current"].is_object()) { night.current = ReadBoss(n["current"]); night.hasCurrent = true; }
         if (n.contains("next") && n["next"].is_object()) { night.next = ReadBoss(n["next"]); night.hasNext = true; }
