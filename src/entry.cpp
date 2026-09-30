@@ -34,7 +34,7 @@ static void ToggleWindow(const char*, bool release) {
 static void PollLoop() {
     int tick = 0;
     while (Running) {
-        if (tick % 50 == 0 || PollNow.exchange(false)) PollNight();
+        if (tick % 50 == 0 || PollNow.exchange(false)) { PollNight(); PollStats(); }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         tick++;
     }
@@ -88,6 +88,53 @@ static void LeadButton(const char* label, const char* op, const std::string& bos
     if (ImGui::Button(label)) { std::string o = op, b = bossId; std::thread([o, b]() { SendOp(o, b); }).detach(); }
 }
 
+static std::string Clock(int ms) { int s = ms / 1000; char buf[16]; snprintf(buf, sizeof(buf), "%d:%02d", s / 60, s % 60); return buf; }
+static std::string Thousands(double value) { char buf[32]; if (value >= 1000000) snprintf(buf, sizeof(buf), "%.2f M", value / 1000000); else if (value >= 1000) snprintf(buf, sizeof(buf), "%.0f k", value / 1000); else snprintf(buf, sizeof(buf), "%.0f", value); return buf; }
+
+// Called with g_state.mutex held.
+static void RenderStats() {
+    if (!g_state.hasPve && !g_state.hasWvw) { ImGui::TextColored(MUTED, "%s", "Rien encore ce soir : les chiffres arrivent quelques secondes après chaque log envoyé par Forge Uploader."); return; }
+    if (g_state.hasPve) {
+        const PveStats& p = g_state.pve;
+        ImGui::TextColored(GOLD, "%s", "Dernier essai");
+        ImGui::SameLine();
+        ImGui::TextColored(MUTED, "· ce soir %d essai(s), %d kill(s), %d mort(s)", p.nightPlayed, p.nightKills, p.nightDeaths);
+        ImGui::TextUnformatted(p.boss.c_str());
+        ImGui::SameLine();
+        if (p.success) ImGui::TextColored(GREEN, "kill en %s", Clock(p.durationMs).c_str());
+        else ImGui::TextColored(RED, "wipe à %.1f %% (%s)", p.hpLeft, Clock(p.durationMs).c_str());
+        if (p.dps >= 0) { ImGui::Text("DPS cible : %s", Thousands(p.dps).c_str()); if (p.rank) { ImGui::SameLine(); ImGui::TextColored(MUTED, "· %de sur %d", p.rank, p.squad); } }
+        ImGui::Text("Morts : %d · à terre : %d", p.deaths, p.downs);
+        if (!p.fellFirst.empty()) ImGui::TextColored(RED, "Tombé(e) en premier : %s", p.fellFirst.c_str());
+        for (const auto& m : p.mechanics) { ImGui::Bullet(); ImGui::SameLine(); ImGui::Text("%s ×%d", m.first.c_str(), m.second); }
+        ImGui::Spacing();
+    }
+    if (g_state.hasWvw) {
+        const WvwStats& w = g_state.wvw;
+        if (g_state.hasPve) ImGui::Separator();
+        ImGui::TextColored(GOLD, "%s", "McM");
+        ImGui::SameLine();
+        ImGui::TextColored(MUTED, "· %s : %d combat(s), %d kills / %d morts", w.title.c_str(), w.fights, w.kills, w.deaths);
+        if (w.hasLast) {
+            ImGui::Text("Dernier combat : %s, %s, %d en escouade%s", w.lastMap.c_str(), Clock(w.lastDuration * 1000).c_str(), w.lastSquad, w.lastAllies ? (" +" + std::to_string(w.lastAllies) + " alliés").c_str() : "");
+            if (!w.teams.empty()) { std::string teams; for (const auto& t : w.teams) teams += (teams.empty() ? "" : " · ") + t.first + " " + std::to_string(t.second); ImGui::TextColored(MUTED, "Ennemis : %s", teams.c_str()); }
+            ImGui::TextColored(GREEN, "%d kills, %d à terre", w.lastKills, w.lastEnemyDowns);
+            ImGui::SameLine();
+            ImGui::TextColored(RED, "· %d morts, %d à terre", w.lastDeaths, w.lastSquadDowns);
+            ImGui::Text("Dégâts : %s%s", Thousands(w.lastDamage).c_str(), w.lastEnemyDamage >= 0 ? (" · reçus " + Thousands(w.lastEnemyDamage)).c_str() : "");
+            if (w.lastStability >= 0) ImGui::Text("Stabilité : %d %% du combat", w.lastStability);
+            for (const auto& f : w.findings) ImGui::TextColored(f.first == "bad" ? RED : f.first == "warn" ? GOLD : GREEN, "%s", f.second.c_str());
+        }
+        if (w.hasMe) {
+            ImGui::Spacing();
+            ImGui::TextColored(SKY, "Ma soirée (%s)", w.meRole.c_str());
+            ImGui::Text("Dégâts %s (%s /s) · %d kills · %d à terre · %d morts", Thousands(w.meDamage).c_str(), Thousands(w.meDps).c_str(), w.meKills, w.meDowns, w.meDeaths);
+            if (w.meDist >= 0) ImGui::Text("Distance au tag : %.0f", w.meDist);
+            if (w.meStability >= 0) ImGui::Text("Stabilité générée : %.1f stacks", w.meStability);
+        }
+    }
+}
+
 static void RenderWindow() {
     bool show = WindowVisible;
     if (!show) return;
@@ -99,6 +146,7 @@ static void RenderWindow() {
         if (!g_state.hasNight) {
             ImGui::TextColored(g_state.tokenOk ? MUTED : RED, "%s", g_state.status.c_str());
             if (!g_state.tokenOk) Wrapped("Options Nexus → Forge : colle ton token Forge Uploader (Forge → Mon suivi → Réglages → Forge Uploader).");
+            else { ImGui::Separator(); RenderStats(); }
         } else {
             const LiveNight& n = g_state.night;
             // Header: the roster (a combo when the member plays in several), day, phase.
@@ -147,6 +195,8 @@ static void RenderWindow() {
             }
             if (n.phase == "ended") {
                 ImGui::Text("%d boss sur %d.", n.killed, (int)n.bosses.size());
+                ImGui::Separator();
+                RenderStats();
             } else if (!n.hasCurrent) {
                 ImGui::TextColored(MUTED, "%s", "Aucun boss prévu pour cette soirée.");
             } else if (ImGui::BeginTabBar("forge-tabs")) {
@@ -206,6 +256,7 @@ static void RenderWindow() {
                     }
                     ImGui::EndTabItem();
                 }
+                if (ImGui::BeginTabItem("Stats")) { RenderStats(); ImGui::EndTabItem(); }
                 if (n.hasNext && ImGui::BeginTabItem("Prochain boss")) {
                     ImGui::TextUnformatted(n.next.label.c_str());
                     if (n.next.hasGuide) {
@@ -296,7 +347,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 2, 1, 0 };
+    Def.Version = { 0, 3, 0, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;

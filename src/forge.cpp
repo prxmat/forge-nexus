@@ -180,6 +180,63 @@ bool PollNight() {
     return true;
 }
 
+void PollStats() {
+    Settings settings;
+    { std::lock_guard<std::mutex> lock(g_state.mutex); settings = g_state.settings; }
+    if (settings.token.empty()) return;
+    std::string body;
+    if (HttpGet(settings.forgeUrl + "/api/live/stats", settings.token, body) != 200) return;
+    try {
+        json data = json::parse(body);
+        PveStats pve; WvwStats wvw;
+        bool hasPve = data.contains("pve") && data["pve"].is_object();
+        bool hasWvw = data.contains("wvw") && data["wvw"].is_object();
+        if (hasPve) {
+            const json& p = data["pve"];
+            pve.boss = p.value("boss", ""); pve.success = p.value("success", false); pve.hpLeft = p.value("hpLeft", 0.0);
+            pve.durationMs = p.value("durationMs", 0); pve.url = p.value("url", "");
+            const json& me = p["me"];
+            pve.dps = me.contains("dps") && me["dps"].is_number() ? me["dps"].get<int>() : -1;
+            pve.rank = me.contains("rank") && me["rank"].is_number() ? me["rank"].get<int>() : 0;
+            pve.squad = me.value("squad", 0); pve.deaths = me.value("deaths", 0); pve.downs = me.value("downs", 0);
+            if (me.contains("fellFirst") && me["fellFirst"].is_string()) pve.fellFirst = me["fellFirst"].get<std::string>();
+            for (const auto& m : me["mechanics"]) pve.mechanics.push_back({ m.value("name", ""), m.value("count", 0) });
+            const json& night = p["night"];
+            pve.nightPlayed = night.value("played", 0); pve.nightKills = night.value("kills", 0); pve.nightDeaths = night.value("deaths", 0);
+        }
+        if (hasWvw) {
+            const json& w = data["wvw"];
+            wvw.title = w.value("title", "");
+            const json& e = w["evening"];
+            wvw.fights = e.value("fights", 0); wvw.kills = e.value("kills", 0); wvw.deaths = e.value("deaths", 0);
+            wvw.squadDowns = e.value("squadDowns", 0); wvw.enemyDowns = e.value("enemyDowns", 0); wvw.seconds = e.value("seconds", 0);
+            if (w.contains("last") && w["last"].is_object()) {
+                const json& l = w["last"];
+                wvw.hasLast = true;
+                wvw.lastMap = l.value("map", ""); wvw.lastUrl = l.value("url", "");
+                wvw.lastDuration = l.value("duration", 0); wvw.lastSquad = l.value("squad", 0); wvw.lastAllies = l.value("allies", 0);
+                wvw.lastKills = l.value("kills", 0); wvw.lastEnemyDowns = l.value("enemyDowns", 0); wvw.lastDeaths = l.value("deaths", 0); wvw.lastSquadDowns = l.value("squadDowns", 0);
+                wvw.lastDamage = l.value("damage", 0.0);
+                wvw.lastEnemyDamage = l.contains("enemyDamage") && l["enemyDamage"].is_number() ? l["enemyDamage"].get<double>() : -1;
+                wvw.lastStability = l.contains("stability") && l["stability"].is_number() ? l["stability"].get<int>() : -1;
+                if (l.contains("teams") && l["teams"].is_object()) for (auto it = l["teams"].begin(); it != l["teams"].end(); ++it) wvw.teams.push_back({ it.key(), it.value().is_number() ? it.value().get<int>() : 0 });
+                for (const auto& f : l["findings"]) wvw.findings.push_back({ f.value("tone", ""), f.value("text", "") });
+            }
+            if (w.contains("me") && w["me"].is_object()) {
+                const json& m = w["me"];
+                wvw.hasMe = true;
+                wvw.meRole = m.value("role", ""); wvw.meDamage = m.value("damage", 0.0); wvw.meDps = m.value("dps", 0.0);
+                wvw.meDowns = m.value("downs", 0); wvw.meDeaths = m.value("deaths", 0); wvw.meKills = m.value("kills", 0);
+                wvw.meDist = m.contains("distToCommander") && m["distToCommander"].is_number() ? m["distToCommander"].get<double>() : -1;
+                wvw.meStability = m.contains("stability") && m["stability"].is_number() ? m["stability"].get<double>() : -1;
+            }
+        }
+        std::lock_guard<std::mutex> lock(g_state.mutex);
+        g_state.pve = pve; g_state.hasPve = hasPve;
+        g_state.wvw = wvw; g_state.hasWvw = hasWvw;
+    } catch (...) {}
+}
+
 void SendOp(const std::string& op, const std::string& bossId) {
     Settings settings; std::string roster, date;
     {
