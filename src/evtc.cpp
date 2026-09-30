@@ -308,9 +308,16 @@ ParsedFight ParseEvtcFile(const std::wstring& path) {
         }
     }
 
+    fight.agentsRead = (int)agents.size();
+    fight.eventsRead = events.size();
+    fight.coloursKnown = (int)teamColours.size();
+    fight.hasPov = povAddress != 0;
     // Who fought: WvW counts each team's players by specialization; both modes list the recorder's squad.
     for (auto& [address, agent] : agents) {
         if (!agent.player) continue;
+        fight.playersRead++;
+        if (!agent.team.empty()) fight.playersWithTeam++;
+        if (agent.seen) fight.playersSeen++;
         bool squad = agent.subgroup > 0 && (agent.team.empty() || agent.team == povTeam || !fight.wvw);
         if (fight.wvw && !agent.team.empty() && agent.seen) {
             auto& team = teams[agent.team];

@@ -40,6 +40,10 @@ struct ParsedFight {
     std::vector<PlayerLine> squad;  // The recorder's squad (subgroup > 0), sorted by damage.
     PlayerLine me;
     bool hasMe = false;
+    // What the parser saw, for the Combats tab when a log yields nothing.
+    int agentsRead = 0, playersRead = 0, playersWithTeam = 0, playersSeen = 0, coloursKnown = 0;
+    size_t eventsRead = 0;
+    bool hasPov = false;
 };
 
 ParsedFight ParseEvtcFile(const std::wstring& path);
