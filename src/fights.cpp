@@ -1,4 +1,5 @@
 #include "fights.h"
+#include "live.h"
 
 #include <windows.h>
 #include <shlobj.h>
@@ -84,6 +85,7 @@ void Loop() {
                 fight.file = std::string(base.begin(), base.end());
                 std::lock_guard<std::mutex> lock(g_fights.mutex);
                 if (fight.ok) {
+                    LiveDismiss();
                     g_fights.fights.push_front(fight);
                     if (g_fights.fights.size() > HISTORY) g_fights.fights.pop_back();
                     g_fights.selected = 0;

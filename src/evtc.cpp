@@ -1,4 +1,5 @@
 #include "evtc.h"
+#include "live.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -129,6 +130,13 @@ std::string SpecProfession(const std::string& spec) {
     return it == BASE.end() ? spec : it->second;
 }
 
+std::string SpecFromIds(uint32_t prof, uint32_t elite) {
+    auto p = PROFESSIONS.find((int)prof);
+    if (p == PROFESSIONS.end()) return "";
+    auto e = ELITES.find((int)elite);
+    return e != ELITES.end() ? e->second : p->second;
+}
+
 std::string SpecShort(const std::string& spec) {
     auto it = SHORTS.find(spec);
     return it == SHORTS.end() ? spec.substr(0, 3) : it->second;
@@ -215,6 +223,7 @@ ParsedFight ParseEvtcFile(const std::wstring& path) {
             if (it != TEAM_GUIDS.end()) teamColours.emplace(e.skillId, it->second);
         }
     }
+    if (!teamColours.empty()) { std::lock_guard<std::mutex> lock(g_teamColoursMutex); for (const auto& [id, colour] : teamColours) g_teamColours[id] = colour; }
     for (const auto& e : events) {
         switch (e.isStateChange) {
         case SC_LogStart: logStart = e.time; if (e.value && e.buffDmg) fight.startUnix = (uint32_t)e.value; break;

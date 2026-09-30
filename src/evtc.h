@@ -48,3 +48,5 @@ const char* BossName(uint16_t speciesId);
 std::string SpecShort(const std::string& spec);
 // "Firebrand" → "Guardian".
 std::string SpecProfession(const std::string& spec);
+// arcdps' profession (1..9) and elite ids → "Firebrand"; empty for a non-player.
+std::string SpecFromIds(uint32_t prof, uint32_t elite);

@@ -13,6 +13,7 @@
 #include "icon.h"
 #include "fights.h"
 #include "arcdps.h"
+#include "live.h"
 #include "spec_icons.h"
 #include <map>
 #include <vector>
@@ -51,7 +52,26 @@ static void ToggleWidget(const char*, bool release) {
     SaveSettingsLocked(SettingsPath);
 }
 static bool InCombat() { return MumbleLink && MumbleLink->Context.IsInCombat; }
-static void OnArcEvent(void*) { ArcdpsNoteEvent(); }
+static void OnArcEvent(void* payload) { ArcdpsNoteEvent(); LiveOnEvent(payload); }
+static bool OnWvwMap() { return MumbleLink && MumbleLink->Context.MapType >= Mumble::EMapType::WvW_EternalBattlegrounds && MumbleLink->Context.MapType <= Mumble::EMapType::WvW_ObsidianSanctum; }
+// The fight to show: the live one while it is on (newest slot), else the log picked in the history. g_fights.mutex held.
+static const ParsedFight* ShownFight(bool newestOnly) {
+    if (g_fights.liveActive && (newestOnly || g_fights.selected == 0)) return &g_fights.live;
+    if (g_fights.fights.empty()) return nullptr;
+    if (newestOnly) return &g_fights.fights.front();
+    if (g_fights.selected >= (int)g_fights.fights.size()) g_fights.selected = 0;
+    return &g_fights.fights[g_fights.selected];
+}
+// Once per frame: the live fight's snapshot, a few times a second.
+static void LiveRefresh() {
+    LiveTick(InCombat(), OnWvwMap());
+    static uint64_t last = 0;
+    uint64_t now = GetTickCount64();
+    if (now - last < 300) return;
+    last = now;
+    std::lock_guard<std::mutex> flock(g_fights.mutex);
+    g_fights.liveActive = LiveSnapshot(g_fights.live);
+}
 
 static std::atomic<bool> ArcCheckNow{ false };
 static bool BuildNoted = false;
@@ -215,6 +235,7 @@ static void ArcdpsLine(bool always) {
         ImGui::SameLine();
     }
     if (bad || always) { if (ImGui::SmallButton("Revérifier")) ArcCheckNow = true; }
+    if (always && verdict != ArcVerdict::Absent && verdict != ArcVerdict::Unknown && !LiveEverEvent()) Wrapped("Combat en direct : installe « ArcDPS Integration » dans la bibliothèque Nexus. Sans lui, les combats n'apparaissent qu'à la fin, depuis le log.");
 }
 static const char* ArcdpsShort() {
     switch (ArcdpsVerdict()) {
@@ -385,10 +406,10 @@ static int SelectedTeam = 0;
 // Called with g_fights.mutex and g_state.mutex held: the fights read in game, newest first.
 static void RenderCombats() {
     Settings& st = g_state.settings;
-    if (g_fights.fights.empty()) { ArcdpsLine(true); ImGui::TextColored(MUTED, "%s", g_fights.status.c_str()); Wrapped("Les combats apparaissent ici dès qu'arcdps a écrit leur log, sans attendre l'envoi."); return; }
+    const ParsedFight* shown = ShownFight(false);
+    if (!shown) { ArcdpsLine(true); ImGui::TextColored(MUTED, "%s", g_fights.status.c_str()); Wrapped("Les combats apparaissent ici dès qu'arcdps a écrit leur log, sans attendre l'envoi."); return; }
     ArcdpsLine(false);
-    if (g_fights.selected >= (int)g_fights.fights.size()) g_fights.selected = 0;
-    const ParsedFight& f = g_fights.fights[g_fights.selected];
+    const ParsedFight& f = *shown;
     float width = ImGui::GetContentRegionAvail().x;
     ImGui::TextColored(MUTED, "%s", f.file.c_str());
     ImGui::SameLine();
@@ -501,6 +522,7 @@ static void RenderCombats() {
 // opens or closes the compact panel.
 static void RenderStrip() {
     ArcdpsNoteCombat(InCombat());
+    LiveRefresh();
     Settings st;
     { std::lock_guard<std::mutex> lock(g_state.mutex); st = g_state.settings; }
     if (!st.showStrip || (st.hideInCombat && InCombat())) return;
@@ -529,11 +551,12 @@ static void RenderStrip() {
             if (w >= size.x + 8) draw->AddText(ImVec2(x + (w - size.x) / 2, pos.y + (height - size.y) / 2), white, text.c_str());
             x += w;
         };
-        if (g_fights.fights.empty()) {
+        const ParsedFight* shown = ShownFight(true);
+        if (!shown) {
             const char* warning = ArcdpsShort();
             segment(barWidth, warning ? IM_COL32(120, 60, 30, 235) : IM_COL32(40, 42, 48, 235), warning ? warning : "Forge · en attente d'un combat");
         } else {
-            const ParsedFight& f = g_fights.fights.front();
+            const ParsedFight& f = *shown;
             if (f.wvw && !f.teams.empty()) {
                 float total = 0;
                 for (const auto& t : f.teams) total += t.players;
@@ -651,13 +674,13 @@ static void RenderWidget() {
         ImGui::SameLine(width - 14 * scale);
         if (ImGui::SmallButton("×")) { st.showWidget = false; SaveSettingsLocked(SettingsPath); }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Fermer (la barre des effectifs le rouvre)");
-        if (g_fights.fights.empty()) {
+        const ParsedFight* shown = ShownFight(false);
+        if (!shown) {
             const char* warning = ArcdpsShort();
             if (warning) ImGui::TextColored(GOLD, "%s", warning);
             ImGui::TextColored(MUTED, "%s", "En attente d'un combat");
         } else {
-            if (g_fights.selected >= (int)g_fights.fights.size()) g_fights.selected = 0;
-            const ParsedFight& f = g_fights.fights[g_fights.selected];
+            const ParsedFight& f = *shown;
             ImGui::TextColored(MUTED, "%s (%s)", f.file.size() > 22 ? f.file.substr(0, 22).c_str() : f.file.c_str(), Clock((int)f.durationMs).c_str());
             if (f.wvw && !f.teams.empty()) {
                 if (WidgetTeam >= (int)f.teams.size()) WidgetTeam = 0;
@@ -1006,7 +1029,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 6, 1, 0 };
+    Def.Version = { 0, 7, 0, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;

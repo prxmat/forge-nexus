@@ -12,6 +12,8 @@ struct FightsState {
     std::wstring logsDir;
     std::string status;             // What the watcher is doing or missing.
     bool squadOnly = false;         // WvW: the recorder's squad rather than the whole team.
+    ParsedFight live;               // The fight going on, from arcdps' events; shown while `liveActive`.
+    bool liveActive = false;
 };
 
 extern FightsState g_fights;

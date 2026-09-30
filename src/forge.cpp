@@ -1,5 +1,6 @@
 #include "forge.h"
 #include "arcdps.h"
+#include "live.h"
 
 #include <windows.h>
 #include <winhttp.h>
@@ -93,6 +94,10 @@ void LoadSettings(const std::string& path) {
         g_state.settings.showWidget = data.value("show_widget", true);
         g_state.settings.showStrip = data.value("show_strip", true);
         g_state.settings.gameBuild = data.value("game_build", 0u);
+        if (data.contains("wvw_teams") && data["wvw_teams"].is_object()) {
+            std::lock_guard<std::mutex> tlock(g_teamColoursMutex);
+            for (const auto& [id, colour] : data["wvw_teams"].items()) if (colour.is_string()) g_teamColours[(uint32_t)std::stoul(id)] = colour.get<std::string>();
+        }
         g_state.settings.stripX = data.value("strip_x", 330.0f);
         g_state.settings.stripY = data.value("strip_y", 30.0f);
         g_state.settings.panelX = data.value("panel_x", 20.0f);
@@ -127,6 +132,7 @@ void SaveSettingsLocked(const std::string& path) {
         data["show_widget"] = g_state.settings.showWidget;
         data["show_strip"] = g_state.settings.showStrip;
         data["game_build"] = g_state.settings.gameBuild;
+        { std::lock_guard<std::mutex> tlock(g_teamColoursMutex); json teams = json::object(); for (const auto& [id, colour] : g_teamColours) teams[std::to_string(id)] = colour; data["wvw_teams"] = teams; }
         data["strip_x"] = g_state.settings.stripX;
         data["strip_y"] = g_state.settings.stripY;
         data["panel_x"] = g_state.settings.panelX;

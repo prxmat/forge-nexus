@@ -114,7 +114,8 @@ ArcVerdict ArcdpsVerdict() {
     if (!a.checked) return ArcVerdict::Unknown;
     if (!a.loaded) return ArcVerdict::Absent;
     if (a.remoteKnown && a.localMd5 != a.remoteMd5) return a.gameUpdated ? ArcVerdict::GameUpdated : ArcVerdict::Outdated;
-    if (a.combatSinceMs && GetTickCount64() - a.combatSinceMs > SILENT_AFTER_MS && a.lastEventMs < a.combatSinceMs) return ArcVerdict::Silent;
+    // Silence means something only once events have flowed: without the ArcDPS Integration addon there are none.
+    if (a.lastEventMs && a.combatSinceMs && GetTickCount64() - a.combatSinceMs > SILENT_AFTER_MS && a.lastEventMs < a.combatSinceMs) return ArcVerdict::Silent;
     if (!a.remoteKnown) return ArcVerdict::Offline;
     return ArcVerdict::Ok;
 }
