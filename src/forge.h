@@ -74,6 +74,8 @@ struct Settings {
     // Panel contents, as Fight Analysis lets one pick them.
     bool panelBars = true, panelNames = true, panelIcons = true, panelClassDamage = true, panelTotal = true, panelKd = false, panelDeaths = true, panelDowns = true, panelDamage = true;
     float panelAlpha = 0.88f;
+    // The game's build seen last session: a change means a game update, which may have broken arcdps.
+    uint32_t gameBuild = 0;
 };
 
 // Shared between the render thread and the poller.

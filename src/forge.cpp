@@ -1,4 +1,5 @@
 #include "forge.h"
+#include "arcdps.h"
 
 #include <windows.h>
 #include <winhttp.h>
@@ -47,7 +48,8 @@ static int HttpRequest(const wchar_t* verb, const std::string& url, const std::s
     if (connect) {
         HINTERNET request = WinHttpOpenRequest(connect, verb, path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
         if (request) {
-            std::wstring headers = L"Authorization: Bearer " + Widen(token) + L"\r\nContent-Type: application/json\r\nAccept: application/json\r\n";
+            // The Forge token goes to Forge only: other hosts (deltaconnected) get no Authorization header.
+            std::wstring headers = (token.empty() ? L"" : L"Authorization: Bearer " + Widen(token) + L"\r\n") + std::wstring(L"Content-Type: application/json\r\nAccept: */*\r\n");
             if (WinHttpSendRequest(request, headers.c_str(), (DWORD)headers.size(), body.empty() ? WINHTTP_NO_REQUEST_DATA : (LPVOID)body.data(), (DWORD)body.size(), (DWORD)body.size(), 0) && WinHttpReceiveResponse(request, nullptr)) {
                 DWORD code = 0, size = sizeof(code);
                 WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &code, &size, WINHTTP_NO_HEADER_INDEX);
@@ -90,6 +92,7 @@ void LoadSettings(const std::string& path) {
         g_state.settings.shortNames = data.value("short_names", false);
         g_state.settings.showWidget = data.value("show_widget", true);
         g_state.settings.showStrip = data.value("show_strip", true);
+        g_state.settings.gameBuild = data.value("game_build", 0u);
         g_state.settings.panelBars = data.value("panel_bars", true);
         g_state.settings.panelNames = data.value("panel_names", true);
         g_state.settings.panelIcons = data.value("panel_icons", true);
@@ -119,6 +122,7 @@ void SaveSettingsLocked(const std::string& path) {
         data["short_names"] = g_state.settings.shortNames;
         data["show_widget"] = g_state.settings.showWidget;
         data["show_strip"] = g_state.settings.showStrip;
+        data["game_build"] = g_state.settings.gameBuild;
         data["panel_bars"] = g_state.settings.panelBars;
         data["panel_names"] = g_state.settings.panelNames;
         data["panel_icons"] = g_state.settings.panelIcons;
@@ -179,7 +183,9 @@ bool PollNight() {
         return false;
     }
     std::string body;
-    int status = HttpGet(settings.forgeUrl + "/api/live/night" + (settings.rosterId.empty() ? "" : "?roster=" + settings.rosterId), settings.token, body);
+    // Forge keeps the state of arcdps per member, so Bienvenue can say when it is missing or outdated.
+    std::string query = std::string("?arcdps=") + ArcdpsCode(ArcdpsVerdict()) + (settings.rosterId.empty() ? "" : "&roster=" + settings.rosterId);
+    int status = HttpGet(settings.forgeUrl + "/api/live/night" + query, settings.token, body);
     std::lock_guard<std::mutex> lock(g_state.mutex);
     if (status == 401) { g_state.status = "Token Forge inconnu ou révoqué."; g_state.tokenOk = false; g_state.hasNight = false; return false; }
     if (status != 200) {

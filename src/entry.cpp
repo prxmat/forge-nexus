@@ -12,6 +12,7 @@
 #include "forge.h"
 #include "icon.h"
 #include "fights.h"
+#include "arcdps.h"
 #include "spec_icons.h"
 #include <map>
 #include <vector>
@@ -50,10 +51,24 @@ static void ToggleWidget(const char*, bool release) {
     SaveSettingsLocked(SettingsPath);
 }
 static bool InCombat() { return MumbleLink && MumbleLink->Context.IsInCombat; }
+static void OnArcEvent(void*) { ArcdpsNoteEvent(); }
 
+static std::atomic<bool> ArcCheckNow{ false };
+static bool BuildNoted = false;
+static void NoteGameBuild() {
+    if (BuildNoted || !MumbleLink || !MumbleLink->Context.BuildID) return;
+    BuildNoted = true;
+    uint32_t build = MumbleLink->Context.BuildID;
+    std::lock_guard<std::mutex> lock(g_state.mutex);
+    if (g_state.settings.gameBuild && g_state.settings.gameBuild != build) { std::lock_guard<std::mutex> alock(g_arcdps.mutex); g_arcdps.gameUpdated = true; }
+    g_state.settings.gameBuild = build;
+    SaveSettingsLocked(SettingsPath);
+}
 static void PollLoop() {
     int tick = 0;
     while (Running) {
+        NoteGameBuild();
+        if (tick % 18000 == 0 || ArcCheckNow.exchange(false)) ArcdpsCheck();
         if (tick % 50 == 0 || PollNow.exchange(false)) { PollNight(); PollStats(); }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         tick++;
@@ -187,7 +202,31 @@ static void BarRow(const std::string& label, float fraction, const ImVec4& colou
 }
 
 // Called with g_state.mutex held: what Forge computed, a few seconds after each log landed.
+// The state of arcdps, as a callout when something is wrong, one muted line otherwise.
+static void ArcdpsLine(bool always) {
+    ArcVerdict verdict = ArcdpsVerdict();
+    bool bad = verdict == ArcVerdict::Absent || verdict == ArcVerdict::Outdated || verdict == ArcVerdict::GameUpdated || verdict == ArcVerdict::Silent;
+    if (!bad && !always) return;
+    if (bad) Callout(verdict == ArcVerdict::Silent || verdict == ArcVerdict::Outdated ? GOLD : RED, ArcdpsText(verdict));
+    else ImGui::TextColored(MUTED, "%s", ArcdpsText(verdict).c_str());
+    if (verdict == ArcVerdict::Absent || verdict == ArcVerdict::Outdated || verdict == ArcVerdict::GameUpdated) {
+        if (ImGui::SmallButton("Télécharger arcdps")) ArcdpsOpenDownload();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Ouvre deltaconnected.com : d3d11.dll va dans le dossier du jeu, puis relance-le.");
+        ImGui::SameLine();
+    }
+    if (bad || always) { if (ImGui::SmallButton("Revérifier")) ArcCheckNow = true; }
+}
+static const char* ArcdpsShort() {
+    switch (ArcdpsVerdict()) {
+    case ArcVerdict::Absent: return "arcdps absent";
+    case ArcVerdict::Outdated: case ArcVerdict::GameUpdated: return "arcdps : mise à jour disponible";
+    case ArcVerdict::Silent: return "arcdps muet en combat ?";
+    default: return nullptr;
+    }
+}
+
 static void RenderStats() {
+    ArcdpsLine(false);
     if (!g_state.hasPve && !g_state.hasWvw) {
         Callout(MUTED, "Rien encore ce soir : les chiffres de Forge arrivent 20 à 40 s après chaque log envoyé par Forge Uploader. L'onglet Combats, lui, lit les logs tout de suite.");
         if (g_state.busy) ImGui::TextColored(MUTED, "%s", "Nouvelle sortie McM…");
@@ -346,7 +385,8 @@ static int SelectedTeam = 0;
 // Called with g_fights.mutex and g_state.mutex held: the fights read in game, newest first.
 static void RenderCombats() {
     Settings& st = g_state.settings;
-    if (g_fights.fights.empty()) { ImGui::TextColored(MUTED, "%s", g_fights.status.c_str()); Wrapped("Les combats apparaissent ici dès qu'arcdps a écrit leur log, sans attendre l'envoi."); return; }
+    if (g_fights.fights.empty()) { ArcdpsLine(true); ImGui::TextColored(MUTED, "%s", g_fights.status.c_str()); Wrapped("Les combats apparaissent ici dès qu'arcdps a écrit leur log, sans attendre l'envoi."); return; }
+    ArcdpsLine(false);
     if (g_fights.selected >= (int)g_fights.fights.size()) g_fights.selected = 0;
     const ParsedFight& f = g_fights.fights[g_fights.selected];
     float width = ImGui::GetContentRegionAvail().x;
@@ -460,6 +500,7 @@ static void RenderCombats() {
 // segments with the number in white (PvE: one segment with the boss, the outcome and the recorder's DPS). A click
 // opens or closes the compact panel.
 static void RenderStrip() {
+    ArcdpsNoteCombat(InCombat());
     Settings st;
     { std::lock_guard<std::mutex> lock(g_state.mutex); st = g_state.settings; }
     if (!st.showStrip || (st.hideInCombat && InCombat())) return;
@@ -489,7 +530,8 @@ static void RenderStrip() {
             x += w;
         };
         if (g_fights.fights.empty()) {
-            segment(barWidth, IM_COL32(40, 42, 48, 235), "Forge · en attente d'un combat");
+            const char* warning = ArcdpsShort();
+            segment(barWidth, warning ? IM_COL32(120, 60, 30, 235) : IM_COL32(40, 42, 48, 235), warning ? warning : "Forge · en attente d'un combat");
         } else {
             const ParsedFight& f = g_fights.fights.front();
             if (f.wvw && !f.teams.empty()) {
@@ -592,6 +634,8 @@ static void RenderWidget() {
         if (ImGui::SmallButton("×")) { st.showWidget = false; SaveSettingsLocked(SettingsPath); }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Fermer (la barre des effectifs le rouvre)");
         if (g_fights.fights.empty()) {
+            const char* warning = ArcdpsShort();
+            if (warning) ImGui::TextColored(GOLD, "%s", warning);
             ImGui::TextColored(MUTED, "%s", "En attente d'un combat");
         } else {
             if (g_fights.selected >= (int)g_fights.fights.size()) g_fights.selected = 0;
@@ -866,6 +910,7 @@ static void RenderOptions() {
         { std::lock_guard<std::mutex> flock(g_fights.mutex); g_fights.logsDir = Widen(LogsBuffer); }
         PollNow = true;
     }
+    ArcdpsLine(true);
     std::lock_guard<std::mutex> lock(g_state.mutex);
     ImGui::TextColored(g_state.tokenOk ? GREEN : MUTED, "%s", g_state.status.c_str());
 }
@@ -906,6 +951,9 @@ static void AddonLoad(AddonAPI_t* api) {
     API->GUI_Register(RT_Render, RenderWidget);
     API->InputBinds_RegisterWithString(KB_WIDGET, ToggleWidget, "(null)");
     MumbleLink = (Mumble::Data*)API->DataLink_Get(DL_MUMBLE_LINK);
+    // Nexus forwards arcdps' combat events to subscribers: a heartbeat that says arcdps still works.
+    API->Events_Subscribe("EV_ARCDPS_COMBATEVENT_LOCAL_RAW", OnArcEvent);
+    API->Events_Subscribe("EV_ARCDPS_COMBATEVENT_SQUAD_RAW", OnArcEvent);
     API->GUI_Register(RT_OptionsRender, RenderOptions);
     API->GUI_RegisterCloseOnEscape(WINDOW, &WindowVisible);
     Running = true;
@@ -924,6 +972,8 @@ static void AddonUnload() {
     API->GUI_Deregister(RenderStrip);
     API->GUI_Deregister(RenderWidget);
     API->InputBinds_Deregister(KB_WIDGET);
+    API->Events_Unsubscribe("EV_ARCDPS_COMBATEVENT_LOCAL_RAW", OnArcEvent);
+    API->Events_Unsubscribe("EV_ARCDPS_COMBATEVENT_SQUAD_RAW", OnArcEvent);
     API->GUI_Deregister(RenderOptions);
     API->QuickAccess_Remove(QA_ICON);
     API->InputBinds_Deregister(KB_TOGGLE);
@@ -936,7 +986,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 5, 6, 0 };
+    Def.Version = { 0, 6, 0, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
