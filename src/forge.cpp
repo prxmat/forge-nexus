@@ -140,7 +140,12 @@ bool PollNight() {
     int status = HttpGet(settings.forgeUrl + "/api/live/night", settings.token, body);
     std::lock_guard<std::mutex> lock(g_state.mutex);
     if (status == 401) { g_state.status = "Token Forge inconnu ou révoqué."; g_state.tokenOk = false; g_state.hasNight = false; return false; }
-    if (status != 200) { g_state.status = status < 0 ? "Forge injoignable (réseau)." : "Forge répond " + std::to_string(status) + "."; return true; }
+    if (status != 200) {
+        std::string detail;
+        try { json data = json::parse(body); detail = data.value("error", ""); } catch (...) {}
+        g_state.status = status < 0 ? "Forge injoignable (réseau)." : "Forge répond " + std::to_string(status) + (detail.empty() ? "." : " : " + detail);
+        return true;
+    }
     try {
         json data = json::parse(body);
         g_state.tokenOk = true;
@@ -153,22 +158,21 @@ bool PollNight() {
         LiveNight night;
         night.member = n.value("member", "");
         night.canPlan = n.value("canPlan", false);
-        night.rosterId = n["roster"].value("id", "");
-        night.rosterName = n["roster"].value("name", "");
+        if (n.contains("roster") && n["roster"].is_object()) { night.rosterId = n["roster"].value("id", ""); night.rosterName = n["roster"].value("name", ""); }
         night.date = n.value("date", "");
         night.day = n.value("day", "");
         night.phase = n.value("phase", "waiting");
         night.version = n.contains("version") && n["version"].is_string() ? n["version"].get<std::string>() : "";
         night.liveUrl = n.value("liveUrl", "");
         night.killed = n.value("killed", 0);
-        for (const auto& item : n["bosses"]) night.bosses.push_back({ item.value("id", ""), item.value("label", ""), item.value("killed", false), item.value("on", false) });
+        if (n.contains("bosses")) for (const auto& item : n["bosses"]) night.bosses.push_back({ item.value("id", ""), item.value("label", ""), item.value("killed", false), item.value("on", false) });
         if (n.contains("current") && n["current"].is_object()) { night.current = ReadBoss(n["current"]); night.hasCurrent = true; }
         if (n.contains("next") && n["next"].is_object()) { night.next = ReadBoss(n["next"]); night.hasNext = true; }
         g_state.night = night;
         g_state.hasNight = true;
         g_state.status = "Connecté : " + night.member;
-    } catch (...) {
-        g_state.status = "Réponse de Forge illisible.";
+    } catch (const std::exception& error) {
+        g_state.status = std::string("Réponse de Forge illisible (") + error.what() + ") : " + body.substr(0, 80);
     }
     return true;
 }
