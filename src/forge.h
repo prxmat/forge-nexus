@@ -70,7 +70,7 @@ struct Settings {
     bool showWindow = true;
     float fontScale = 1.0f;
     // Combats tab and widget.
-    bool squadOnly = false, sortByDamage = false, shortNames = false, showWidget = true, hideInCombat = false;
+    bool squadOnly = false, sortByDamage = false, shortNames = false, showWidget = true, showStrip = true, hideInCombat = false;
 };
 
 // Shared between the render thread and the poller.

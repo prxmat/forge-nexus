@@ -89,6 +89,7 @@ void LoadSettings(const std::string& path) {
         g_state.settings.sortByDamage = data.value("sort_by_damage", false);
         g_state.settings.shortNames = data.value("short_names", false);
         g_state.settings.showWidget = data.value("show_widget", true);
+        g_state.settings.showStrip = data.value("show_strip", true);
         g_state.settings.hideInCombat = data.value("hide_in_combat", false);
     } catch (...) {}
 }
@@ -107,6 +108,7 @@ void SaveSettings(const std::string& path) {
         data["sort_by_damage"] = g_state.settings.sortByDamage;
         data["short_names"] = g_state.settings.shortNames;
         data["show_widget"] = g_state.settings.showWidget;
+        data["show_strip"] = g_state.settings.showStrip;
         data["hide_in_combat"] = g_state.settings.hideInCombat;
     }
     std::ofstream file(path);

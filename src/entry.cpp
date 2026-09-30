@@ -370,7 +370,8 @@ static void RenderCombats() {
         changed |= ImGui::Checkbox("Trier par dégâts", &st.sortByDamage);
         changed |= ImGui::Checkbox("Escouade seulement", &st.squadOnly);
         changed |= ImGui::Checkbox("Noms courts", &st.shortNames);
-        changed |= ImGui::Checkbox("Widget", &st.showWidget);
+        changed |= ImGui::Checkbox("Barre des effectifs", &st.showStrip);
+        changed |= ImGui::Checkbox("Panneau du combat", &st.showWidget);
         changed |= ImGui::Checkbox("Masquer le widget en combat", &st.hideInCombat);
         if (changed) SaveSettings(SettingsPath);
         ImGui::EndPopup();
@@ -453,6 +454,74 @@ static void RenderCombats() {
             }
         }
     }
+}
+
+// The strip, as WvW Fight Analysis draws it: a dark square with the squad icon, then the teams' counts as coloured
+// segments with the number in white (PvE: one segment with the boss, the outcome and the recorder's DPS). A click
+// opens or closes the compact panel.
+static void RenderStrip() {
+    Settings st;
+    { std::lock_guard<std::mutex> lock(g_state.mutex); st = g_state.settings; }
+    if (!st.showStrip || (st.hideInCombat && InCombat())) return;
+    std::lock_guard<std::mutex> flock(g_fights.mutex);
+    if (NexusLink && NexusLink->Font) ImGui::PushFont((ImFont*)NexusLink->Font);
+    const float scale = st.fontScale;
+    const float height = 26.0f * scale, iconBox = 34.0f * scale, barWidth = 320.0f * scale;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(10, 10));
+    ImGui::SetNextWindowBgAlpha(0.0f);
+    ImGui::SetNextWindowPos(ImVec2(330.0f, 30.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(iconBox + barWidth, height));
+    if (ImGui::Begin("Forge strip", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBackground)) {
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        ImVec2 pos = ImGui::GetCursorScreenPos();
+        const ImU32 dark = IM_COL32(24, 24, 28, 235), outline = IM_COL32(60, 60, 66, 255), white = IM_COL32(245, 245, 245, 255);
+        // Icon box.
+        draw->AddRectFilled(pos, ImVec2(pos.x + iconBox, pos.y + height), dark);
+        draw->AddRect(pos, ImVec2(pos.x + iconBox + barWidth, pos.y + height), outline);
+        if (Texture_t* icon = UiTexture("squad"); icon && icon->Resource) draw->AddImage((ImTextureID)icon->Resource, ImVec2(pos.x + (iconBox - 16 * scale) / 2, pos.y + (height - 16 * scale) / 2), ImVec2(pos.x + (iconBox + 16 * scale) / 2, pos.y + (height + 16 * scale) / 2));
+        float x = pos.x + iconBox;
+        auto segment = [&](float w, ImU32 colour, const std::string& text) {
+            draw->AddRectFilled(ImVec2(x, pos.y), ImVec2(x + w, pos.y + height), colour);
+            ImVec2 size = ImGui::CalcTextSize(text.c_str());
+            if (w >= size.x + 8) draw->AddText(ImVec2(x + (w - size.x) / 2, pos.y + (height - size.y) / 2), white, text.c_str());
+            x += w;
+        };
+        if (g_fights.fights.empty()) {
+            segment(barWidth, IM_COL32(40, 42, 48, 235), "Forge · en attente d'un combat");
+        } else {
+            const ParsedFight& f = g_fights.fights.front();
+            if (f.wvw && !f.teams.empty()) {
+                float total = 0;
+                for (const auto& t : f.teams) total += t.players;
+                for (const auto& t : f.teams) {
+                    ImVec4 c = TeamColour(t.name);
+                    ImU32 colour = t.name == "Red" ? IM_COL32(211, 74, 58, 235) : t.name == "Blue" ? IM_COL32(58, 166, 217, 235) : t.name == "Green" ? IM_COL32(141, 197, 63, 235) : ImGui::GetColorU32(c);
+                    segment(total > 0 ? barWidth * t.players / total : 0, colour, std::to_string(t.players));
+                }
+            } else {
+                double seconds = std::max(1.0, f.durationMs / 1000.0);
+                std::string text = f.boss + (f.success ? " · kill " : f.hpLeft >= 0 ? " · wipe " + std::to_string((int)(f.hpLeft + 0.5)) + " % " : " · wipe ") + Clock((int)f.durationMs);
+                if (f.hasMe) {
+                    int rank = 0;
+                    for (size_t i = 0; i < f.squad.size(); i++) if (f.squad[i].pov) rank = (int)i + 1;
+                    text += " · " + Thousands(f.me.damage / seconds) + " DPS" + (rank ? " (" + std::to_string(rank) + "e)" : "");
+                }
+                segment(barWidth, f.success ? IM_COL32(52, 140, 88, 235) : IM_COL32(150, 52, 48, 235), text);
+            }
+        }
+        ImGui::SetCursorScreenPos(pos);
+        if (ImGui::InvisibleButton("forge-strip", ImVec2(iconBox + barWidth, height))) {
+            std::lock_guard<std::mutex> lock(g_state.mutex);
+            g_state.settings.showWidget = !g_state.settings.showWidget;
+            SaveSettings(SettingsPath);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Clic : ouvrir / fermer le panneau du combat");
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(3);
+    if (NexusLink && NexusLink->Font) ImGui::PopFont();
 }
 
 static int WidgetTeam = 0;
@@ -728,7 +797,7 @@ static void RenderOptions() {
     ImGui::InputText("Adresse de Forge", UrlBuffer, sizeof(UrlBuffer));
     { std::lock_guard<std::mutex> flock(g_fights.mutex); if (!LogsBuffer[0]) snprintf(LogsBuffer, sizeof(LogsBuffer), "%s", Narrow(g_fights.logsDir).c_str()); }
     ImGui::InputText("Dossier des logs arcdps", LogsBuffer, sizeof(LogsBuffer));
-    { std::lock_guard<std::mutex> lock(g_state.mutex); bool changed = ImGui::Checkbox("Widget (dernier combat en une ligne)", &g_state.settings.showWidget); changed |= ImGui::Checkbox("Masquer le widget en combat", &g_state.settings.hideInCombat); if (changed) SaveSettings(SettingsPath); }
+    { std::lock_guard<std::mutex> lock(g_state.mutex); bool changed = ImGui::Checkbox("Barre des effectifs (un clic ouvre le panneau)", &g_state.settings.showStrip); changed |= ImGui::Checkbox("Panneau du combat", &g_state.settings.showWidget); changed |= ImGui::Checkbox("Masquer le widget en combat", &g_state.settings.hideInCombat); if (changed) SaveSettings(SettingsPath); }
     float scale;
     { std::lock_guard<std::mutex> lock(g_state.mutex); scale = g_state.settings.fontScale; }
     if (ImGui::SliderFloat("Taille du texte", &scale, 0.8f, 1.6f, "%.1f")) { std::lock_guard<std::mutex> lock(g_state.mutex); g_state.settings.fontScale = scale; }
@@ -780,6 +849,7 @@ static void AddonLoad(AddonAPI_t* api) {
     API->Textures_LoadFromMemory(TEX_ICON_HOVER, (void*)FORGE_ICON_PNG, FORGE_ICON_PNG_SIZE, ReceiveTexture);
     API->QuickAccess_Add(QA_ICON, TEX_ICON, TEX_ICON_HOVER, KB_TOGGLE, "Forge : la soirée en direct");
     API->GUI_Register(RT_Render, RenderWindow);
+    API->GUI_Register(RT_Render, RenderStrip);
     API->GUI_Register(RT_Render, RenderWidget);
     API->InputBinds_RegisterWithString(KB_WIDGET, ToggleWidget, "(null)");
     MumbleLink = (Mumble::Data*)API->DataLink_Get(DL_MUMBLE_LINK);
@@ -798,6 +868,7 @@ static void AddonUnload() {
     Running = false;
     if (Poller.joinable()) Poller.join();
     API->GUI_Deregister(RenderWindow);
+    API->GUI_Deregister(RenderStrip);
     API->GUI_Deregister(RenderWidget);
     API->InputBinds_Deregister(KB_WIDGET);
     API->GUI_Deregister(RenderOptions);
@@ -812,7 +883,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 5, 4, 0 };
+    Def.Version = { 0, 5, 5, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
