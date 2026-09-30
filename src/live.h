@@ -11,7 +11,8 @@
 extern std::mutex g_teamColoursMutex;
 extern std::map<uint32_t, std::string> g_teamColours;
 
-// Nexus callback for EV_ARCDPS_COMBATEVENT_LOCAL_RAW and _SQUAD_RAW.
+// Nexus callback for EV_ARCDPS_COMBATEVENT_SQUAD_RAW: the squad's events, the recorder's included. The local
+// channel repeats the recorder's own events, so it only serves as a heartbeat (see arcdps.cpp).
 void LiveOnEvent(void* payload);
 // Each frame: Mumble's combat flag and whether the map is WvW; ends a fight left behind.
 void LiveTick(bool inCombat, bool wvwMap);

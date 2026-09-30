@@ -42,6 +42,9 @@ struct LiveAgent {
 
 struct LiveState {
     std::mutex mutex;
+    // Ids of the last events, to drop a repeat (two bridges relaying the same arcdps event).
+    std::vector<uint64_t> recentIds = std::vector<uint64_t>(512, 0);
+    size_t recentAt = 0;
     bool active = false, finished = false, everEvent = false, wvwMap = false, success = false;
     uint64_t startTick = 0, finishedTick = 0, outOfCombatTick = 0;
     std::unordered_map<uintptr_t, LiveAgent> agents; // The squad roster outlives fights.
@@ -90,6 +93,10 @@ void LiveOnEvent(void* payload) {
     std::lock_guard<std::mutex> lock(g_live.mutex);
     LiveState& s = g_live;
     s.everEvent = true;
+    if (p->id) {
+        for (uint64_t seen : s.recentIds) if (seen == p->id) return;
+        s.recentIds[s.recentAt++ % s.recentIds.size()] = p->id;
+    }
     const CombatEvent* ev = p->ev;
     if (!ev) {
         // Agent tracking: src is the character, dst carries account, profession, elite, self and subgroup.

@@ -52,7 +52,8 @@ static void ToggleWidget(const char*, bool release) {
     SaveSettingsLocked(SettingsPath);
 }
 static bool InCombat() { return MumbleLink && MumbleLink->Context.IsInCombat; }
-static void OnArcEvent(void* payload) { ArcdpsNoteEvent(); LiveOnEvent(payload); }
+static void OnArcEventLocal(void*) { ArcdpsNoteEvent(); }
+static void OnArcEventSquad(void* payload) { ArcdpsNoteEvent(); LiveOnEvent(payload); }
 static bool OnWvwMap() { return MumbleLink && MumbleLink->Context.MapType >= Mumble::EMapType::WvW_EternalBattlegrounds && MumbleLink->Context.MapType <= Mumble::EMapType::WvW_ObsidianSanctum; }
 // The fight to show: the live one while it is on (newest slot), else the log picked in the history. g_fights.mutex held.
 static const ParsedFight* ShownFight(bool newestOnly) {
@@ -995,8 +996,8 @@ static void AddonLoad(AddonAPI_t* api) {
     API->InputBinds_RegisterWithString(KB_WIDGET, ToggleWidget, "(null)");
     MumbleLink = (Mumble::Data*)API->DataLink_Get(DL_MUMBLE_LINK);
     // Nexus forwards arcdps' combat events to subscribers: a heartbeat that says arcdps still works.
-    API->Events_Subscribe("EV_ARCDPS_COMBATEVENT_LOCAL_RAW", OnArcEvent);
-    API->Events_Subscribe("EV_ARCDPS_COMBATEVENT_SQUAD_RAW", OnArcEvent);
+    API->Events_Subscribe("EV_ARCDPS_COMBATEVENT_LOCAL_RAW", OnArcEventLocal);
+    API->Events_Subscribe("EV_ARCDPS_COMBATEVENT_SQUAD_RAW", OnArcEventSquad);
     API->GUI_Register(RT_OptionsRender, RenderOptions);
     API->GUI_RegisterCloseOnEscape(WINDOW, &WindowVisible);
     Running = true;
@@ -1015,8 +1016,8 @@ static void AddonUnload() {
     API->GUI_Deregister(RenderStrip);
     API->GUI_Deregister(RenderWidget);
     API->InputBinds_Deregister(KB_WIDGET);
-    API->Events_Unsubscribe("EV_ARCDPS_COMBATEVENT_LOCAL_RAW", OnArcEvent);
-    API->Events_Unsubscribe("EV_ARCDPS_COMBATEVENT_SQUAD_RAW", OnArcEvent);
+    API->Events_Unsubscribe("EV_ARCDPS_COMBATEVENT_LOCAL_RAW", OnArcEventLocal);
+    API->Events_Unsubscribe("EV_ARCDPS_COMBATEVENT_SQUAD_RAW", OnArcEventSquad);
     API->GUI_Deregister(RenderOptions);
     API->QuickAccess_Remove(QA_ICON);
     API->InputBinds_Deregister(KB_TOGGLE);
@@ -1029,7 +1030,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 7, 1, 0 };
+    Def.Version = { 0, 7, 2, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
