@@ -85,6 +85,11 @@ void LoadSettings(const std::string& path) {
         g_state.settings.logsDir = data.value("logs_dir", "");
         g_state.settings.showWindow = data.value("show_window", true);
         g_state.settings.fontScale = data.value("font_scale", 1.0f);
+        g_state.settings.squadOnly = data.value("squad_only", false);
+        g_state.settings.sortByDamage = data.value("sort_by_damage", false);
+        g_state.settings.shortNames = data.value("short_names", false);
+        g_state.settings.showWidget = data.value("show_widget", true);
+        g_state.settings.hideInCombat = data.value("hide_in_combat", false);
     } catch (...) {}
 }
 
@@ -98,6 +103,11 @@ void SaveSettings(const std::string& path) {
         data["logs_dir"] = g_state.settings.logsDir;
         data["show_window"] = g_state.settings.showWindow;
         data["font_scale"] = g_state.settings.fontScale;
+        data["squad_only"] = g_state.settings.squadOnly;
+        data["sort_by_damage"] = g_state.settings.sortByDamage;
+        data["short_names"] = g_state.settings.shortNames;
+        data["show_widget"] = g_state.settings.showWidget;
+        data["hide_in_combat"] = g_state.settings.hideInCombat;
     }
     std::ofstream file(path);
     file << data.dump(2);
@@ -224,6 +234,9 @@ void PollStats() {
                 wvw.lastStability = l.contains("stability") && l["stability"].is_number() ? l["stability"].get<int>() : -1;
                 if (l.contains("teams") && l["teams"].is_object()) for (auto it = l["teams"].begin(); it != l["teams"].end(); ++it) wvw.teams.push_back({ it.key(), it.value().is_number() ? it.value().get<int>() : 0 });
                 for (const auto& f : l["findings"]) wvw.findings.push_back({ f.value("tone", ""), f.value("text", "") });
+                auto readPlayer = [](const json& pl) { FightPlayer fp; fp.account = pl.value("account", ""); fp.name = pl.value("name", ""); fp.profession = pl.value("profession", ""); fp.seconds = pl.value("seconds", 0); fp.damage = pl.value("damage", 0.0); fp.dps = pl.value("dps", 0.0); fp.kills = pl.value("kills", 0); fp.enemyDowns = pl.value("enemyDowns", 0); fp.downs = pl.value("downs", 0); fp.deaths = pl.value("deaths", 0); fp.strips = pl.value("strips", 0); fp.cleanses = pl.value("cleanses", 0); fp.stability = pl.value("stability", 0.0); fp.dist = pl.contains("distToCommander") && pl["distToCommander"].is_number() ? pl["distToCommander"].get<double>() : -1; return fp; };
+                if (l.contains("players")) for (const auto& pl : l["players"]) wvw.lastPlayers.push_back(readPlayer(pl));
+                if (l.contains("me") && l["me"].is_object()) { wvw.lastMe = readPlayer(l["me"]); wvw.hasLastMe = true; }
             }
             if (w.contains("me") && w["me"].is_object()) {
                 const json& m = w["me"];
@@ -238,6 +251,22 @@ void PollStats() {
         g_state.pve = pve; g_state.hasPve = hasPve;
         g_state.wvw = wvw; g_state.hasWvw = hasWvw;
     } catch (...) {}
+}
+
+void StartWvwEvening() {
+    Settings settings;
+    { std::lock_guard<std::mutex> lock(g_state.mutex); if (g_state.busy) return; g_state.busy = true; g_state.error.clear(); settings = g_state.settings; }
+    std::string out;
+    int status = HttpPostJson(settings.forgeUrl + "/api/live/session", settings.token, "{}", out);
+    if (status != 200) {
+        std::string message = "Forge a refusé (" + std::to_string(status) + ").";
+        try { json data = json::parse(out); message = data.value("error", message); } catch (...) {}
+        std::lock_guard<std::mutex> lock(g_state.mutex);
+        g_state.error = message;
+    }
+    PollStats();
+    std::lock_guard<std::mutex> lock(g_state.mutex);
+    g_state.busy = false;
 }
 
 void SendOp(const std::string& op, const std::string& bossId) {

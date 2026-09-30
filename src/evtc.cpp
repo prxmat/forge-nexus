@@ -113,6 +113,22 @@ const char* BossName(uint16_t speciesId) {
     return it == BOSSES.end() ? nullptr : it->second;
 }
 
+std::string SpecProfession(const std::string& spec) {
+    static const std::unordered_map<std::string, const char*> BASE = {
+        {"Dragonhunter", "Guardian"}, {"Firebrand", "Guardian"}, {"Willbender", "Guardian"}, {"Luminary", "Guardian"},
+        {"Berserker", "Warrior"}, {"Spellbreaker", "Warrior"}, {"Bladesworn", "Warrior"}, {"Paragon", "Warrior"},
+        {"Scrapper", "Engineer"}, {"Holosmith", "Engineer"}, {"Mechanist", "Engineer"}, {"Amalgam", "Engineer"},
+        {"Druid", "Ranger"}, {"Soulbeast", "Ranger"}, {"Untamed", "Ranger"}, {"Galeshot", "Ranger"},
+        {"Daredevil", "Thief"}, {"Deadeye", "Thief"}, {"Specter", "Thief"}, {"Antiquary", "Thief"},
+        {"Tempest", "Elementalist"}, {"Weaver", "Elementalist"}, {"Catalyst", "Elementalist"}, {"Evoker", "Elementalist"},
+        {"Chronomancer", "Mesmer"}, {"Mirage", "Mesmer"}, {"Virtuoso", "Mesmer"}, {"Troubadour", "Mesmer"},
+        {"Reaper", "Necromancer"}, {"Scourge", "Necromancer"}, {"Harbinger", "Necromancer"}, {"Ritualist", "Necromancer"},
+        {"Herald", "Revenant"}, {"Renegade", "Revenant"}, {"Vindicator", "Revenant"}, {"Conduit", "Revenant"},
+    };
+    auto it = BASE.find(spec);
+    return it == BASE.end() ? spec : it->second;
+}
+
 std::string SpecShort(const std::string& spec) {
     auto it = SHORTS.find(spec);
     return it == SHORTS.end() ? spec.substr(0, 3) : it->second;
@@ -254,14 +270,14 @@ ParsedFight ParseEvtcFile(const std::wstring& path) {
         return it->second;
     };
     std::map<std::string, TeamSummary> teams;
-    std::map<std::string, std::map<std::string, int>> teamSpecs;
+    std::map<std::string, std::map<std::string, SpecCount>> teamSpecs;
     for (const auto& e : events) {
         if (e.isStateChange == SC_ChangeDead || e.isStateChange == SC_ChangeDown) {
             auto it = byInstid.find(e.srcInstid);
             if (it == byInstid.end() || !it->second->player) continue;
             Agent& agent = *it->second;
             if (e.isStateChange == SC_ChangeDead) lineOf(agent).deaths++; else lineOf(agent).downs++;
-            if (fight.wvw && !agent.team.empty()) { auto& team = teams[agent.team]; if (e.isStateChange == SC_ChangeDead) team.deaths++; else team.downs++; }
+            if (fight.wvw && !agent.team.empty()) { auto& team = teams[agent.team]; auto& spec = teamSpecs[agent.team][agent.spec]; if (e.isStateChange == SC_ChangeDead) { team.deaths++; spec.deaths++; } else { team.downs++; spec.downs++; } }
             continue;
         }
         if (e.isStateChange != SC_None || e.isActivation != 0 || e.isBuffRemove != 0) continue;
@@ -275,7 +291,7 @@ ParsedFight ParseEvtcFile(const std::wstring& path) {
         bool vsPlayer = target && target->player;
         if (fight.wvw) {
             if (!vsPlayer || attacker.team.empty() || target->team == attacker.team) continue;
-            if (damage > 0) { lineOf(attacker).damage += damage; teams[attacker.team].damage += damage; }
+            if (damage > 0) { lineOf(attacker).damage += damage; teams[attacker.team].damage += damage; teamSpecs[attacker.team][attacker.spec].damage += damage; }
             if (e.result == R_KillingBlow) { lineOf(attacker).kills++; teams[attacker.team].kills++; }
         } else {
             if (vsPlayer) continue; // Damage on players (mind control, allies) is not boss damage.
@@ -290,7 +306,7 @@ ParsedFight ParseEvtcFile(const std::wstring& path) {
         if (fight.wvw && !agent.team.empty() && agent.seen) {
             auto& team = teams[agent.team];
             team.players++;
-            teamSpecs[agent.team][agent.spec]++;
+            teamSpecs[agent.team][agent.spec].count++;
         }
         if (squad && agent.seen) fight.squad.push_back(lineOf(agent));
         if (address == povAddress) { fight.me = lineOf(agent); fight.hasMe = true; }
@@ -298,7 +314,7 @@ ParsedFight ParseEvtcFile(const std::wstring& path) {
     for (auto& [name, team] : teams) {
         team.name = name;
         team.pov = name == povTeam;
-        for (const auto& [spec, count] : teamSpecs[name]) team.specs.push_back({ spec, count });
+        for (auto& [spec, entry] : teamSpecs[name]) { entry.spec = spec; if (entry.count) team.specs.push_back(entry); }
         std::sort(team.specs.begin(), team.specs.end(), [](const SpecCount& a, const SpecCount& b) { return a.count > b.count; });
         fight.teams.push_back(team);
     }

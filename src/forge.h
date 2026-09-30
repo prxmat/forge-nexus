@@ -40,6 +40,8 @@ struct PveStats {
     int nightPlayed = 0, nightKills = 0, nightDeaths = 0;
 };
 
+struct FightPlayer { std::string account, name, profession; int seconds = 0; double damage = 0, dps = 0; int kills = 0, enemyDowns = 0, downs = 0, deaths = 0, strips = 0, cleanses = 0; double stability = 0, dist = -1; };
+
 struct WvwStats {
     std::string title, lastMap, lastUrl;
     int fights = 0, kills = 0, deaths = 0, squadDowns = 0, enemyDowns = 0, seconds = 0;
@@ -49,6 +51,9 @@ struct WvwStats {
     int lastStability = -1;
     std::vector<std::pair<std::string, int>> teams;
     std::vector<std::pair<std::string, std::string>> findings; // tone, text
+    std::vector<FightPlayer> lastPlayers;
+    bool hasLastMe = false;
+    FightPlayer lastMe;
     bool hasMe = false;
     std::string meRole;
     double meDamage = 0, meDps = 0, meDist = -1, meStability = -1;
@@ -64,6 +69,8 @@ struct Settings {
     std::string logsDir;
     bool showWindow = true;
     float fontScale = 1.0f;
+    // Combats tab and widget.
+    bool squadOnly = false, sortByDamage = false, shortNames = false, showWidget = true, hideInCombat = false;
 };
 
 // Shared between the render thread and the poller.
@@ -90,6 +97,8 @@ void SaveSettings(const std::string& path);
 bool PollNight();
 // One poll of /api/live/stats: the latest PvE pull and the McM evening.
 void PollStats();
+// "Nouvelle soirée McM": the fights sent from now on go to a fresh evening.
+void StartWvwEvening();
 // A lead's click: op is start | go | kill | undo | skip | end.
 void SendOp(const std::string& op, const std::string& bossId);
 

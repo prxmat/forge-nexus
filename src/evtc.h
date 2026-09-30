@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-struct SpecCount { std::string spec; int count = 0; };
+struct SpecCount { std::string spec; int count = 0; uint64_t damage = 0; int deaths = 0, downs = 0; };
 
 struct TeamSummary {
     std::string name; // Red, Blue, Green (or the id when unknown).
@@ -46,3 +46,5 @@ ParsedFight ParseEvtcFile(const std::wstring& path);
 const char* BossName(uint16_t speciesId);
 // "Firebrand" → "Fbd", for tight lists.
 std::string SpecShort(const std::string& spec);
+// "Firebrand" → "Guardian".
+std::string SpecProfession(const std::string& spec);
