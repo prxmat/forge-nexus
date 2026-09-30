@@ -4,11 +4,15 @@
 #include <string>
 #include <thread>
 #include <cstdio>
+#include <algorithm>
 
 #include "Nexus.h"
 #include "imgui/imgui.h"
 #include "forge.h"
 #include "icon.h"
+#include "fights.h"
+#include "spec_icons.h"
+#include <map>
 
 static AddonAPI_t* API = nullptr;
 static AddonDefinition_t Def{};
@@ -23,6 +27,7 @@ static const char* TEX_ICON = "TEX_FORGE_ICON";
 static const char* TEX_ICON_HOVER = "TEX_FORGE_ICON_HOVER";
 static const char* QA_ICON = "QA_FORGE";
 static const char* WINDOW = "Forge";
+static void SpecIcon(const std::string& spec, float size = 18.0f);
 // Nexus flips this on Escape (GUI_RegisterCloseOnEscape keeps the pointer): the window's own visibility flag.
 static bool WindowVisible = true;
 
@@ -135,6 +140,109 @@ static void RenderStats() {
     }
 }
 
+static const ImVec4 TEAM_RED{ 0.94f, 0.33f, 0.31f, 1.0f };
+static const ImVec4 TEAM_BLUE{ 0.40f, 0.62f, 0.95f, 1.0f };
+static const ImVec4 TEAM_GREEN{ 0.36f, 0.78f, 0.45f, 1.0f };
+static ImVec4 TeamColour(const std::string& name) { return name == "Red" ? TEAM_RED : name == "Blue" ? TEAM_BLUE : name == "Green" ? TEAM_GREEN : MUTED; }
+static const char* TeamLabel(const std::string& name) { return name == "Red" ? "Rouge" : name == "Blue" ? "Bleu" : name == "Green" ? "Vert" : name.c_str(); }
+
+static void Bar(float fraction, const ImVec4& colour, float width) {
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    float height = ImGui::GetTextLineHeight() * 0.6f;
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height), IM_COL32(40, 46, 54, 255), 3.0f);
+    draw->AddRectFilled(pos, ImVec2(pos.x + width * std::max(0.0f, std::min(1.0f, fraction)), pos.y + height), ImGui::GetColorU32(colour), 3.0f);
+    ImGui::Dummy(ImVec2(width, height));
+}
+
+// Called with g_fights.mutex held: the fights read in game, newest first.
+static void RenderCombats() {
+    if (g_fights.fights.empty()) { ImGui::TextColored(MUTED, "%s", g_fights.status.c_str()); Wrapped("Les combats apparaissent ici dès qu'arcdps a écrit leur log, sans attendre l'envoi."); return; }
+    // History strip.
+    for (size_t index = 0; index < g_fights.fights.size() && index < 10; index++) {
+        const ParsedFight& f = g_fights.fights[index];
+        if (index) ImGui::SameLine();
+        std::string label = f.wvw ? "McM " + Clock((int)f.durationMs) : (f.boss.empty() ? "PvE" : f.boss) + (f.success ? " ✓" : "");
+        ImGui::PushStyleColor(ImGuiCol_Text, (int)index == g_fights.selected ? GOLD : MUTED);
+        if (ImGui::SmallButton((label + "##" + std::to_string(index)).c_str())) g_fights.selected = (int)index;
+        ImGui::PopStyleColor();
+    }
+    if (g_fights.selected >= (int)g_fights.fights.size()) g_fights.selected = 0;
+    const ParsedFight& f = g_fights.fights[g_fights.selected];
+    ImGui::Separator();
+    float width = ImGui::GetContentRegionAvail().x;
+    if (f.wvw) {
+        ImGui::Checkbox("Escouade seulement", &g_fights.squadOnly);
+        ImGui::SameLine();
+        ImGui::TextColored(MUTED, "· %s · %s", Clock((int)f.durationMs).c_str(), f.file.c_str());
+        uint64_t maxDamage = 1;
+        int maxPlayers = 1;
+        for (const auto& team : f.teams) { maxDamage = std::max(maxDamage, team.damage); maxPlayers = std::max(maxPlayers, team.players); }
+        for (const auto& team : f.teams) {
+            ImVec4 colour = TeamColour(team.name);
+            if (NexusLink && NexusLink->FontBig) ImGui::PushFont((ImFont*)NexusLink->FontBig);
+            ImGui::TextColored(colour, "%s", TeamLabel(team.name));
+            if (NexusLink && NexusLink->FontBig) ImGui::PopFont();
+            ImGui::SameLine();
+            if (team.pov && g_fights.squadOnly) {
+                ImGui::TextColored(MUTED, "escouade : %d joueurs", (int)f.squad.size());
+            } else ImGui::TextColored(MUTED, "%d joueurs%s", team.players, team.pov ? " (nous)" : "");
+            ImGui::Text("%d kills", team.kills); ImGui::SameLine(); ImGui::TextColored(RED, "· %d morts, %d à terre", team.deaths, team.downs); ImGui::SameLine(); ImGui::TextColored(MUTED, "· %s dégâts", Thousands((double)team.damage).c_str());
+            Bar((float)team.damage / (float)maxDamage, colour, width * 0.6f);
+            // Specializations as icons with counts, most played first.
+            if (team.pov && g_fights.squadOnly) {
+                std::map<std::string, int> counts;
+                for (const auto& line : f.squad) counts[line.spec]++;
+                std::vector<SpecCount> specs;
+                for (const auto& [spec, count] : counts) specs.push_back({ spec, count });
+                std::sort(specs.begin(), specs.end(), [](const SpecCount& a, const SpecCount& b) { return a.count > b.count; });
+                int shown = 0;
+                for (const auto& sc : specs) { if (shown++) ImGui::SameLine(0, 10); SpecIcon(sc.spec); ImGui::Text("%d", sc.count); if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", sc.spec.c_str()); }
+            } else {
+                int shown = 0;
+                for (const auto& sc : team.specs) { if (shown >= 12) break; if (shown++) ImGui::SameLine(0, 10); SpecIcon(sc.spec); ImGui::Text("%d", sc.count); if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", sc.spec.c_str()); }
+            }
+            ImGui::Spacing();
+        }
+        if (f.teams.empty()) ImGui::TextColored(MUTED, "%s", "Aucune équipe reconnue dans ce log (arcdps trop ancien ?).");
+    } else {
+        if (NexusLink && NexusLink->FontBig) ImGui::PushFont((ImFont*)NexusLink->FontBig);
+        ImGui::TextUnformatted(f.boss.c_str());
+        if (NexusLink && NexusLink->FontBig) ImGui::PopFont();
+        ImGui::SameLine();
+        if (f.success) ImGui::TextColored(GREEN, "kill en %s", Clock((int)f.durationMs).c_str());
+        else if (f.hpLeft >= 0) ImGui::TextColored(RED, "wipe à %.1f %% (%s)", f.hpLeft, Clock((int)f.durationMs).c_str());
+        else ImGui::TextColored(RED, "wipe (%s)", Clock((int)f.durationMs).c_str());
+        if (f.hasMe) {
+            int rank = 0;
+            for (size_t i = 0; i < f.squad.size(); i++) if (f.squad[i].pov) rank = (int)i + 1;
+            double seconds = std::max(1.0, f.durationMs / 1000.0);
+            ImGui::TextColored(SKY, "Toi : %s DPS", Thousands(f.me.damage / seconds).c_str());
+            if (rank) { ImGui::SameLine(); ImGui::TextColored(MUTED, "· %de sur %d", rank, (int)f.squad.size()); }
+            ImGui::SameLine();
+            ImGui::TextColored(MUTED, "· %d mort(s), %d à terre", f.me.deaths, f.me.downs);
+        }
+        ImGui::Spacing();
+    }
+    // Squad table, both modes: damage bars per player.
+    if (!f.squad.empty()) {
+        ImGui::TextColored(GOLD, "%s", f.wvw ? "Escouade" : "Escouade (dégâts sur le boss)");
+        uint64_t top = std::max<uint64_t>(1, f.squad.front().damage);
+        double seconds = std::max(1.0, f.durationMs / 1000.0);
+        int shown = 0;
+        for (const auto& line : f.squad) {
+            if (shown++ >= 12) { ImGui::TextColored(MUTED, "… et %d autres", (int)f.squad.size() - 12); break; }
+            SpecIcon(line.spec, 16.0f);
+            ImGui::TextColored(line.pov ? SKY : MUTED, "%-18.18s", line.name.c_str());
+            ImGui::SameLine(width * 0.42f);
+            Bar((float)line.damage / (float)top, line.pov ? SKY : GOLD, width * 0.28f);
+            ImGui::SameLine();
+            ImGui::Text("%s /s", Thousands(line.damage / seconds).c_str());
+            if (line.deaths || line.downs) { ImGui::SameLine(); ImGui::TextColored(RED, "· %d↓ %d✝", line.downs, line.deaths); }
+        }
+    }
+}
+
 static void RenderWindow() {
     bool show = WindowVisible;
     if (!show) return;
@@ -146,7 +254,7 @@ static void RenderWindow() {
         if (!g_state.hasNight) {
             ImGui::TextColored(g_state.tokenOk ? MUTED : RED, "%s", g_state.status.c_str());
             if (!g_state.tokenOk) Wrapped("Options Nexus → Forge : colle ton token Forge Uploader (Forge → Mon suivi → Réglages → Forge Uploader).");
-            else { ImGui::Separator(); RenderStats(); }
+            else { ImGui::Separator(); if (ImGui::BeginTabBar("forge-tabs-nonight")) { if (ImGui::BeginTabItem("Combats")) { std::lock_guard<std::mutex> flock(g_fights.mutex); RenderCombats(); ImGui::EndTabItem(); } if (ImGui::BeginTabItem("Forge")) { RenderStats(); ImGui::EndTabItem(); } ImGui::EndTabBar(); } }
         } else {
             const LiveNight& n = g_state.night;
             // Header: the roster (a combo when the member plays in several), day, phase.
@@ -195,6 +303,8 @@ static void RenderWindow() {
             }
             if (n.phase == "ended") {
                 ImGui::Text("%d boss sur %d.", n.killed, (int)n.bosses.size());
+                ImGui::Separator();
+                { std::lock_guard<std::mutex> flock(g_fights.mutex); RenderCombats(); }
                 ImGui::Separator();
                 RenderStats();
             } else if (!n.hasCurrent) {
@@ -261,7 +371,8 @@ static void RenderWindow() {
                     }
                     ImGui::EndTabItem();
                 }
-                if (ImGui::BeginTabItem("Stats")) { RenderStats(); ImGui::EndTabItem(); }
+                if (ImGui::BeginTabItem("Combats")) { std::lock_guard<std::mutex> flock(g_fights.mutex); RenderCombats(); ImGui::EndTabItem(); }
+                if (ImGui::BeginTabItem("Stats Forge")) { RenderStats(); ImGui::EndTabItem(); }
                 if (n.hasNext && ImGui::BeginTabItem("Prochain boss")) {
                     ImGui::TextUnformatted(n.next.label.c_str());
                     if (n.next.hasGuide) {
@@ -283,6 +394,9 @@ static void RenderWindow() {
 
 static char TokenBuffer[128]{};
 static char UrlBuffer[256]{};
+static char LogsBuffer[512]{};
+static std::string Narrow(const std::wstring& text) { if (text.empty()) return ""; int n = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), (int)text.size(), nullptr, 0, nullptr, nullptr); std::string out(n, '\0'); WideCharToMultiByte(CP_UTF8, 0, text.c_str(), (int)text.size(), &out[0], n, nullptr, nullptr); return out; }
+static std::wstring Widen(const std::string& text) { if (text.empty()) return L""; int n = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), (int)text.size(), nullptr, 0); std::wstring out(n, L'\0'); MultiByteToWideChar(CP_UTF8, 0, text.c_str(), (int)text.size(), &out[0], n); return out; }
 
 static void RenderOptions() {
     {
@@ -293,6 +407,8 @@ static void RenderOptions() {
     ImGui::TextWrapped("%s", "Token Forge Uploader : dans Forge, Mon suivi → Réglages → Forge Uploader → Créer mon token. Le même que pour l'uploader.");
     ImGui::InputText("Token Forge", TokenBuffer, sizeof(TokenBuffer), ImGuiInputTextFlags_Password);
     ImGui::InputText("Adresse de Forge", UrlBuffer, sizeof(UrlBuffer));
+    { std::lock_guard<std::mutex> flock(g_fights.mutex); if (!LogsBuffer[0]) snprintf(LogsBuffer, sizeof(LogsBuffer), "%s", Narrow(g_fights.logsDir).c_str()); }
+    ImGui::InputText("Dossier des logs arcdps", LogsBuffer, sizeof(LogsBuffer));
     float scale;
     { std::lock_guard<std::mutex> lock(g_state.mutex); scale = g_state.settings.fontScale; }
     if (ImGui::SliderFloat("Taille du texte", &scale, 0.8f, 1.6f, "%.1f")) { std::lock_guard<std::mutex> lock(g_state.mutex); g_state.settings.fontScale = scale; }
@@ -301,16 +417,33 @@ static void RenderOptions() {
             std::lock_guard<std::mutex> lock(g_state.mutex);
             g_state.settings.token = TokenBuffer;
             g_state.settings.forgeUrl = UrlBuffer;
+            g_state.settings.logsDir = LogsBuffer;
             while (!g_state.settings.forgeUrl.empty() && g_state.settings.forgeUrl.back() == '/') g_state.settings.forgeUrl.pop_back();
         }
         SaveSettings(SettingsPath);
+        { std::lock_guard<std::mutex> flock(g_fights.mutex); g_fights.logsDir = Widen(LogsBuffer); }
         PollNow = true;
     }
     std::lock_guard<std::mutex> lock(g_state.mutex);
     ImGui::TextColored(g_state.tokenOk ? GREEN : MUTED, "%s", g_state.status.c_str());
 }
 
-static void ReceiveTexture(const char*, Texture_t*) {}
+static std::map<std::string, Texture_t*> SpecTextures;
+static void ReceiveTexture(const char* identifier, Texture_t* texture) {
+    std::string id = identifier;
+    if (id.rfind("TEX_FORGE_SPEC_", 0) == 0 && texture) SpecTextures[id.substr(15)] = texture;
+}
+static Texture_t* SpecTexture(const std::string& spec) {
+    auto it = SpecTextures.find(spec);
+    if (it != SpecTextures.end()) return it->second;
+    if (API) {
+        for (const auto& png : SPEC_PNGS) if (spec == png.name) { API->Textures_LoadFromMemory(("TEX_FORGE_SPEC_" + spec).c_str(), (void*)png.data, png.size, ReceiveTexture); break; }
+    }
+    return nullptr;
+}
+static void SpecIcon(const std::string& spec, float size) {
+    if (Texture_t* texture = SpecTexture(spec); texture && texture->Resource) { ImGui::Image((ImTextureID)texture->Resource, ImVec2(size, size)); ImGui::SameLine(0, 4); }
+}
 
 static void AddonLoad(AddonAPI_t* api) {
     API = api;
@@ -320,7 +453,8 @@ static void AddonLoad(AddonAPI_t* api) {
     SettingsPath = std::string(API->Paths_GetAddonDirectory("Forge")) + "\\settings.json";
     CreateDirectoryA(API->Paths_GetAddonDirectory("Forge"), nullptr);
     LoadSettings(SettingsPath);
-    { std::lock_guard<std::mutex> lock(g_state.mutex); WindowVisible = g_state.settings.showWindow; }
+    { std::lock_guard<std::mutex> lock(g_state.mutex); WindowVisible = g_state.settings.showWindow; g_fights.logsDir = g_state.settings.logsDir.empty() ? DefaultLogsDir() : Widen(g_state.settings.logsDir); }
+    StartFightsWatcher();
     API->InputBinds_RegisterWithString(KB_TOGGLE, ToggleWindow, "CTRL+SHIFT+F");
     API->Textures_LoadFromMemory(TEX_ICON, (void*)FORGE_ICON_PNG, FORGE_ICON_PNG_SIZE, ReceiveTexture);
     API->Textures_LoadFromMemory(TEX_ICON_HOVER, (void*)FORGE_ICON_PNG, FORGE_ICON_PNG_SIZE, ReceiveTexture);
@@ -334,6 +468,7 @@ static void AddonLoad(AddonAPI_t* api) {
 }
 
 static void AddonUnload() {
+    StopFightsWatcher();
     API->GUI_DeregisterCloseOnEscape(WINDOW);
     { std::lock_guard<std::mutex> lock(g_state.mutex); g_state.settings.showWindow = WindowVisible; }
     SaveSettings(SettingsPath);
@@ -352,7 +487,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 3, 1, 0 };
+    Def.Version = { 0, 4, 0, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;

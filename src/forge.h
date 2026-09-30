@@ -60,6 +60,8 @@ struct Settings {
     std::string token;
     // The roster chosen in the window when the member plays in several; empty = Forge's pick.
     std::string rosterId;
+    // arcdps log folder; empty = the default under Documents.
+    std::string logsDir;
     bool showWindow = true;
     float fontScale = 1.0f;
 };

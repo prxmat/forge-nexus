@@ -82,6 +82,7 @@ void LoadSettings(const std::string& path) {
         g_state.settings.forgeUrl = data.value("forge_url", g_state.settings.forgeUrl);
         g_state.settings.token = data.value("token", "");
         g_state.settings.rosterId = data.value("roster_id", "");
+        g_state.settings.logsDir = data.value("logs_dir", "");
         g_state.settings.showWindow = data.value("show_window", true);
         g_state.settings.fontScale = data.value("font_scale", 1.0f);
     } catch (...) {}
@@ -94,6 +95,7 @@ void SaveSettings(const std::string& path) {
         data["forge_url"] = g_state.settings.forgeUrl;
         data["token"] = g_state.settings.token;
         data["roster_id"] = g_state.settings.rosterId;
+        data["logs_dir"] = g_state.settings.logsDir;
         data["show_window"] = g_state.settings.showWindow;
         data["font_scale"] = g_state.settings.fontScale;
     }

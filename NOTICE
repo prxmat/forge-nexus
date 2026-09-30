@@ -1,0 +1,8 @@
+Forge (addon Nexus) — Le Bus Magique
+
+Ce projet contient du code et des ressources de :
+- WvW Fight Analysis Addon, jake-greygoose, licence MIT — lecture des logs evtc (src/evtc.cpp) et icônes de spécialisation (src/spec_icons.h).
+- miniz, Rich Geldreich et al., licence MIT — src/thirdparty/miniz.
+- Dear ImGui, Omar Cornut, licence MIT — src/imgui.
+- Nexus API et Mumble API, Raidcore.GG, licence MIT — src/Nexus.h, src/Mumble.h.
+- nlohmann/json, Niels Lohmann, licence MIT — src/json.hpp.
