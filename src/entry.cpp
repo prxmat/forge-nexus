@@ -455,9 +455,11 @@ static void RenderCombats() {
     }
 }
 
-// The widget, as WvW Fight Analysis draws it: a thin strip, a dark square with the squad icon, then the teams'
-// counts as coloured segments with the number in white. PvE: one segment with the boss, the outcome and the
-// recorder's DPS. No window frame: only the strip.
+static int WidgetTeam = 0;
+
+// The widget, as WvW Fight Analysis' compact window: title, log name and duration, one tab per team, totals with
+// icons, then a row per specialization with its count, icon, name, damage and a bar in the profession's colour.
+// PvE: boss and outcome, the recorder's DPS, then the squad's damage rows.
 static void RenderWidget() {
     Settings st;
     { std::lock_guard<std::mutex> lock(g_state.mutex); st = g_state.settings; }
@@ -465,55 +467,98 @@ static void RenderWidget() {
     std::lock_guard<std::mutex> flock(g_fights.mutex);
     if (NexusLink && NexusLink->Font) ImGui::PushFont((ImFont*)NexusLink->Font);
     const float scale = st.fontScale;
-    const float height = 26.0f * scale, iconBox = 34.0f * scale, barWidth = 320.0f * scale;
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(10, 10));
-    ImGui::SetNextWindowBgAlpha(0.0f);
-    ImGui::SetNextWindowPos(ImVec2(330.0f, 30.0f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(iconBox + barWidth, height));
-    if (ImGui::Begin("Forge widget", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBackground)) {
-        ImDrawList* draw = ImGui::GetWindowDrawList();
-        ImVec2 pos = ImGui::GetCursorScreenPos();
-        const ImU32 dark = IM_COL32(24, 24, 28, 235), outline = IM_COL32(60, 60, 66, 255), white = IM_COL32(245, 245, 245, 255);
-        // Icon box.
-        draw->AddRectFilled(pos, ImVec2(pos.x + iconBox, pos.y + height), dark);
-        draw->AddRect(pos, ImVec2(pos.x + iconBox + barWidth, pos.y + height), outline);
-        if (Texture_t* icon = UiTexture("squad"); icon && icon->Resource) draw->AddImage((ImTextureID)icon->Resource, ImVec2(pos.x + (iconBox - 16 * scale) / 2, pos.y + (height - 16 * scale) / 2), ImVec2(pos.x + (iconBox + 16 * scale) / 2, pos.y + (height + 16 * scale) / 2));
-        float x = pos.x + iconBox;
-        auto segment = [&](float w, ImU32 colour, const std::string& text) {
-            draw->AddRectFilled(ImVec2(x, pos.y), ImVec2(x + w, pos.y + height), colour);
-            ImVec2 size = ImGui::CalcTextSize(text.c_str());
-            if (w >= size.x + 8) draw->AddText(ImVec2(x + (w - size.x) / 2, pos.y + (height - size.y) / 2), white, text.c_str());
-            x += w;
-        };
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 6 * scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6 * scale, 3 * scale));
+    ImGui::SetNextWindowBgAlpha(0.88f);
+    ImGui::SetNextWindowPos(ImVec2(20.0f, 60.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(250.0f * scale, 0.0f), ImGuiCond_Always);
+    if (ImGui::Begin("Forge widget", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse)) {
+        ImGui::SetWindowFontScale(scale);
+        float width = ImGui::GetContentRegionAvail().x;
+        ImGui::TextColored(ImVec4(0.93f, 0.94f, 0.95f, 1.0f), "%s", "Forge · Combat");
         if (g_fights.fights.empty()) {
-            segment(barWidth, IM_COL32(40, 42, 48, 235), "Forge · en attente d'un combat");
+            ImGui::TextColored(MUTED, "%s", "En attente d'un combat");
         } else {
             const ParsedFight& f = g_fights.fights.front();
+            ImGui::TextColored(MUTED, "%s (%s)", f.file.size() > 22 ? f.file.substr(0, 22).c_str() : f.file.c_str(), Clock((int)f.durationMs).c_str());
             if (f.wvw && !f.teams.empty()) {
-                float total = 0;
-                for (const auto& t : f.teams) total += t.players;
-                for (const auto& t : f.teams) {
-                    ImVec4 c = TeamColour(t.name);
-                    ImU32 colour = t.name == "Red" ? IM_COL32(211, 74, 58, 235) : t.name == "Blue" ? IM_COL32(58, 166, 217, 235) : t.name == "Green" ? IM_COL32(141, 197, 63, 235) : ImGui::GetColorU32(c);
-                    segment(total > 0 ? barWidth * t.players / total : 0, colour, std::to_string(t.players));
+                if (WidgetTeam >= (int)f.teams.size()) WidgetTeam = 0;
+                for (size_t index = 0; index < f.teams.size(); index++) {
+                    if (index) ImGui::SameLine(0, 2);
+                    ImVec4 colour = TeamColour(f.teams[index].name);
+                    bool active = (int)index == WidgetTeam;
+                    ImGui::PushStyleColor(ImGuiCol_Button, active ? ImVec4(colour.x, colour.y, colour.z, 0.45f) : ImVec4(0.16f, 0.17f, 0.20f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_Text, active ? ImVec4(1, 1, 1, 1) : colour);
+                    if (ImGui::SmallButton(TeamLabel(f.teams[index].name))) WidgetTeam = (int)index;
+                    ImGui::PopStyleColor(2);
+                }
+                ImGui::Separator();
+                const TeamSummary& t = f.teams[WidgetTeam];
+                bool squadView = t.pov && st.squadOnly;
+                std::vector<SpecCount> rows;
+                int players = t.players, deaths = t.deaths, downs = t.downs;
+                uint64_t damage = t.damage;
+                if (squadView) {
+                    std::map<std::string, SpecCount> bySpec;
+                    players = 0; deaths = 0; downs = 0; damage = 0;
+                    for (const auto& line : f.squad) { auto& sc = bySpec[line.spec]; sc.spec = line.spec; sc.count++; sc.damage += line.damage; sc.deaths += line.deaths; sc.downs += line.downs; players++; deaths += line.deaths; downs += line.downs; damage += line.damage; }
+                    for (auto& [spec, sc] : bySpec) rows.push_back(sc);
+                } else rows = t.specs;
+                UiIcon("squad", ImGui::GetTextLineHeight()); ImGui::Text("Total : %d", players);
+                UiIcon("death", ImGui::GetTextLineHeight()); ImGui::Text("Morts : %d", deaths);
+                UiIcon("downed", ImGui::GetTextLineHeight()); ImGui::Text("À terre : %d", downs);
+                UiIcon("damage", ImGui::GetTextLineHeight()); ImGui::Text("Dégâts : %s", Thousands((double)damage).c_str());
+                ImGui::Separator();
+                std::sort(rows.begin(), rows.end(), [&](const SpecCount& a, const SpecCount& b) { return st.sortByDamage ? a.damage > b.damage : (a.count != b.count ? a.count > b.count : a.damage > b.damage); });
+                uint64_t maxDamage = 1; int maxCount = 1;
+                for (const auto& sc : rows) { maxDamage = std::max(maxDamage, sc.damage); maxCount = std::max(maxCount, sc.count); }
+                for (const auto& sc : rows) {
+                    ImVec2 pos = ImGui::GetCursorScreenPos();
+                    float height = ImGui::GetTextLineHeight() + 4 * scale;
+                    ImDrawList* draw = ImGui::GetWindowDrawList();
+                    ImVec4 colour = ProfessionColour(sc.spec);
+                    float fraction = st.sortByDamage ? (float)sc.damage / (float)maxDamage : (float)sc.count / (float)maxCount;
+                    draw->AddRectFilled(pos, ImVec2(pos.x + width * std::max(0.05f, std::min(1.0f, fraction)), pos.y + height), ImGui::GetColorU32(ImVec4(colour.x * 0.55f, colour.y * 0.55f, colour.z * 0.55f, 0.9f)), 2.0f);
+                    ImGui::SetCursorScreenPos(ImVec2(pos.x + 4 * scale, pos.y + 2 * scale));
+                    ImGui::Text("%d", sc.count);
+                    ImGui::SameLine(0, 5 * scale);
+                    SpecIcon(sc.spec, ImGui::GetTextLineHeight());
+                    ImGui::Text("%s (%s)", st.shortNames ? SpecShort(sc.spec).c_str() : sc.spec.c_str(), Thousands((double)sc.damage).c_str());
+                    ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + height + 2 * scale));
                 }
             } else {
+                if (f.success) ImGui::TextColored(GREEN, "%s · kill", f.boss.c_str());
+                else if (f.hpLeft >= 0) ImGui::TextColored(RED, "%s · wipe %.0f %%", f.boss.c_str(), f.hpLeft);
+                else ImGui::TextColored(RED, "%s · wipe", f.boss.c_str());
                 double seconds = std::max(1.0, f.durationMs / 1000.0);
-                std::string text = f.boss + (f.success ? " · kill " : f.hpLeft >= 0 ? " · wipe " + std::to_string((int)(f.hpLeft + 0.5)) + " % " : " · wipe ") + Clock((int)f.durationMs);
                 if (f.hasMe) {
                     int rank = 0;
                     for (size_t i = 0; i < f.squad.size(); i++) if (f.squad[i].pov) rank = (int)i + 1;
-                    text += " · " + Thousands(f.me.damage / seconds) + " DPS" + (rank ? " (" + std::to_string(rank) + "e)" : "");
+                    ImGui::TextColored(SKY, "Toi : %s DPS%s", Thousands(f.me.damage / seconds).c_str(), rank ? (" · " + std::to_string(rank) + "e/" + std::to_string(f.squad.size())).c_str() : "");
+                    if (f.me.deaths || f.me.downs) { ImGui::SameLine(0, 6); ImGui::TextColored(RED, "%d✝ %d↓", f.me.deaths, f.me.downs); }
                 }
-                segment(barWidth, f.success ? IM_COL32(52, 140, 88, 235) : IM_COL32(150, 52, 48, 235), text);
+                ImGui::Separator();
+                uint64_t top = 1;
+                for (const auto& line : f.squad) top = std::max(top, line.damage);
+                int shown = 0;
+                for (const auto& line : f.squad) {
+                    if (shown++ >= 10) break;
+                    ImVec2 pos = ImGui::GetCursorScreenPos();
+                    float height = ImGui::GetTextLineHeight() + 4 * scale;
+                    ImDrawList* draw = ImGui::GetWindowDrawList();
+                    ImVec4 colour = line.pov ? SKY : ProfessionColour(line.spec);
+                    draw->AddRectFilled(pos, ImVec2(pos.x + width * std::max(0.05f, (float)line.damage / (float)top), pos.y + height), ImGui::GetColorU32(ImVec4(colour.x * 0.55f, colour.y * 0.55f, colour.z * 0.55f, 0.9f)), 2.0f);
+                    ImGui::SetCursorScreenPos(ImVec2(pos.x + 4 * scale, pos.y + 2 * scale));
+                    SpecIcon(line.spec, ImGui::GetTextLineHeight());
+                    ImGui::Text("%s (%s)", line.name.size() > 14 ? line.name.substr(0, 14).c_str() : line.name.c_str(), Thousands(line.damage / seconds).c_str());
+                    ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + height + 2 * scale));
+                }
             }
         }
-        ImGui::Dummy(ImVec2(iconBox + barWidth, height));
+        ImGui::SetWindowFontScale(1.0f);
     }
     ImGui::End();
-    ImGui::PopStyleVar(3);
+    ImGui::PopStyleVar(2);
     if (NexusLink && NexusLink->Font) ImGui::PopFont();
 }
 
@@ -767,7 +812,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 5, 3, 0 };
+    Def.Version = { 0, 5, 4, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
