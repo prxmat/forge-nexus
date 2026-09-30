@@ -103,9 +103,15 @@ static std::string Thousands(double value) { char buf[32]; if (value >= 1000000)
 struct Kpi { std::string value, label, sub; ImVec4 colour; };
 static void KpiRow(const std::vector<Kpi>& tiles) {
     if (tiles.empty()) return;
-    float gap = 8.0f;
+    const float gap = 8.0f, pad = 12.0f, between = 4.0f;
     float width = (ImGui::GetContentRegionAvail().x - gap * (tiles.size() - 1)) / tiles.size();
-    float height = ImGui::GetTextLineHeight() * 3.4f;
+    float small = ImGui::GetTextLineHeight();
+    if (NexusLink && NexusLink->FontBig) ImGui::PushFont((ImFont*)NexusLink->FontBig);
+    float big = ImGui::GetTextLineHeight();
+    if (NexusLink && NexusLink->FontBig) ImGui::PopFont();
+    bool anySub = false;
+    for (const auto& tile : tiles) if (!tile.sub.empty()) anySub = true;
+    float height = pad + small + between + big + (anySub ? between + small : 0.0f) + pad;
     ImVec2 origin = ImGui::GetCursorScreenPos();
     ImDrawList* draw = ImGui::GetWindowDrawList();
     for (size_t index = 0; index < tiles.size(); index++) {
@@ -113,18 +119,22 @@ static void KpiRow(const std::vector<Kpi>& tiles) {
         ImVec2 pos(origin.x + index * (width + gap), origin.y);
         draw->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height), IM_COL32(29, 35, 42, 255), 6.0f);
         draw->AddRectFilled(pos, ImVec2(pos.x + 3.0f, pos.y + height), ImGui::GetColorU32(tile.colour), 6.0f);
-        ImGui::SetCursorScreenPos(ImVec2(pos.x + 10.0f, pos.y + 6.0f));
+        float y = pos.y + pad;
+        ImGui::SetCursorScreenPos(ImVec2(pos.x + pad, y));
         ImGui::TextColored(MUTED, "%s", tile.label.c_str());
-        ImGui::SetCursorScreenPos(ImVec2(pos.x + 10.0f, pos.y + 6.0f + ImGui::GetTextLineHeight()));
+        y += small + between;
+        ImGui::SetCursorScreenPos(ImVec2(pos.x + pad, y));
         if (NexusLink && NexusLink->FontBig) ImGui::PushFont((ImFont*)NexusLink->FontBig);
         ImGui::TextColored(tile.colour, "%s", tile.value.c_str());
         if (NexusLink && NexusLink->FontBig) ImGui::PopFont();
-        if (!tile.sub.empty()) { ImGui::SetCursorScreenPos(ImVec2(pos.x + 10.0f, pos.y + height - ImGui::GetTextLineHeight() - 4.0f)); ImGui::TextColored(MUTED, "%s", tile.sub.c_str()); }
+        y += big + between;
+        if (!tile.sub.empty()) { ImGui::SetCursorScreenPos(ImVec2(pos.x + pad, y)); ImGui::TextColored(MUTED, "%s", tile.sub.c_str()); }
     }
     ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + height + gap));
 }
 
 static void SectionTitle(const char* eyebrow, const std::string& title) {
+    ImGui::Spacing();
     ImGui::TextColored(MUTED, "%s", eyebrow);
     if (NexusLink && NexusLink->FontBig) ImGui::PushFont((ImFont*)NexusLink->FontBig);
     ImGui::TextUnformatted(title.c_str());
@@ -137,12 +147,12 @@ static void Callout(const ImVec4& colour, const std::string& text) {
     ImGui::PushTextWrapPos(pos.x + width - 12.0f);
     ImVec2 size = ImGui::CalcTextSize(text.c_str(), nullptr, false, width - 24.0f);
     ImGui::PopTextWrapPos();
-    float height = size.y + 12.0f;
+    float height = size.y + 16.0f;
     ImDrawList* draw = ImGui::GetWindowDrawList();
     ImVec4 wash = colour; wash.w = 0.16f;
     draw->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height), ImGui::GetColorU32(wash), 6.0f);
     draw->AddRectFilled(pos, ImVec2(pos.x + 3.0f, pos.y + height), ImGui::GetColorU32(colour), 6.0f);
-    ImGui::SetCursorScreenPos(ImVec2(pos.x + 12.0f, pos.y + 6.0f));
+    ImGui::SetCursorScreenPos(ImVec2(pos.x + 12.0f, pos.y + 8.0f));
     ImGui::PushTextWrapPos(pos.x + width - 12.0f);
     ImGui::TextUnformatted(text.c_str());
     ImGui::PopTextWrapPos();
@@ -576,7 +586,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 4, 1, 0 };
+    Def.Version = { 0, 4, 2, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
