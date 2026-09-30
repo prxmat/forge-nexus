@@ -13,6 +13,7 @@
 #include "fights.h"
 #include "spec_icons.h"
 #include <map>
+#include <vector>
 
 static AddonAPI_t* API = nullptr;
 static AddonDefinition_t Def{};
@@ -28,6 +29,8 @@ static const char* TEX_ICON_HOVER = "TEX_FORGE_ICON_HOVER";
 static const char* QA_ICON = "QA_FORGE";
 static const char* WINDOW = "Forge";
 static void SpecIcon(const std::string& spec, float size = 18.0f);
+static ImVec4 TeamColour(const std::string& name);
+static const char* TeamLabel(const std::string& name);
 // Nexus flips this on Escape (GUI_RegisterCloseOnEscape keeps the pointer): the window's own visibility flag.
 static bool WindowVisible = true;
 
@@ -96,46 +99,132 @@ static void LeadButton(const char* label, const char* op, const std::string& bos
 static std::string Clock(int ms) { int s = ms / 1000; char buf[16]; snprintf(buf, sizeof(buf), "%d:%02d", s / 60, s % 60); return buf; }
 static std::string Thousands(double value) { char buf[32]; if (value >= 1000000) snprintf(buf, sizeof(buf), "%.2f M", value / 1000000); else if (value >= 1000) snprintf(buf, sizeof(buf), "%.0f k", value / 1000); else snprintf(buf, sizeof(buf), "%.0f", value); return buf; }
 
-// Called with g_state.mutex held.
+// A row of figure tiles: a big number, its label, a small line under it.
+struct Kpi { std::string value, label, sub; ImVec4 colour; };
+static void KpiRow(const std::vector<Kpi>& tiles) {
+    if (tiles.empty()) return;
+    float gap = 8.0f;
+    float width = (ImGui::GetContentRegionAvail().x - gap * (tiles.size() - 1)) / tiles.size();
+    float height = ImGui::GetTextLineHeight() * 3.4f;
+    ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    for (size_t index = 0; index < tiles.size(); index++) {
+        const Kpi& tile = tiles[index];
+        ImVec2 pos(origin.x + index * (width + gap), origin.y);
+        draw->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height), IM_COL32(29, 35, 42, 255), 6.0f);
+        draw->AddRectFilled(pos, ImVec2(pos.x + 3.0f, pos.y + height), ImGui::GetColorU32(tile.colour), 6.0f);
+        ImGui::SetCursorScreenPos(ImVec2(pos.x + 10.0f, pos.y + 6.0f));
+        ImGui::TextColored(MUTED, "%s", tile.label.c_str());
+        ImGui::SetCursorScreenPos(ImVec2(pos.x + 10.0f, pos.y + 6.0f + ImGui::GetTextLineHeight()));
+        if (NexusLink && NexusLink->FontBig) ImGui::PushFont((ImFont*)NexusLink->FontBig);
+        ImGui::TextColored(tile.colour, "%s", tile.value.c_str());
+        if (NexusLink && NexusLink->FontBig) ImGui::PopFont();
+        if (!tile.sub.empty()) { ImGui::SetCursorScreenPos(ImVec2(pos.x + 10.0f, pos.y + height - ImGui::GetTextLineHeight() - 4.0f)); ImGui::TextColored(MUTED, "%s", tile.sub.c_str()); }
+    }
+    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + height + gap));
+}
+
+static void SectionTitle(const char* eyebrow, const std::string& title) {
+    ImGui::TextColored(MUTED, "%s", eyebrow);
+    if (NexusLink && NexusLink->FontBig) ImGui::PushFont((ImFont*)NexusLink->FontBig);
+    ImGui::TextUnformatted(title.c_str());
+    if (NexusLink && NexusLink->FontBig) ImGui::PopFont();
+}
+
+static void Callout(const ImVec4& colour, const std::string& text) {
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    float width = ImGui::GetContentRegionAvail().x;
+    ImGui::PushTextWrapPos(pos.x + width - 12.0f);
+    ImVec2 size = ImGui::CalcTextSize(text.c_str(), nullptr, false, width - 24.0f);
+    ImGui::PopTextWrapPos();
+    float height = size.y + 12.0f;
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImVec4 wash = colour; wash.w = 0.16f;
+    draw->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + height), ImGui::GetColorU32(wash), 6.0f);
+    draw->AddRectFilled(pos, ImVec2(pos.x + 3.0f, pos.y + height), ImGui::GetColorU32(colour), 6.0f);
+    ImGui::SetCursorScreenPos(ImVec2(pos.x + 12.0f, pos.y + 6.0f));
+    ImGui::PushTextWrapPos(pos.x + width - 12.0f);
+    ImGui::TextUnformatted(text.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + height + 6.0f));
+}
+
+static void BarRow(const std::string& label, float fraction, const ImVec4& colour, const std::string& value) {
+    float width = ImGui::GetContentRegionAvail().x;
+    ImGui::TextUnformatted(label.c_str());
+    ImGui::SameLine(width * 0.45f);
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    float barWidth = width * 0.35f;
+    float height = ImGui::GetTextLineHeight() * 0.6f;
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(ImVec2(pos.x, pos.y + 3.0f), ImVec2(pos.x + barWidth, pos.y + 3.0f + height), IM_COL32(40, 46, 54, 255), 3.0f);
+    draw->AddRectFilled(ImVec2(pos.x, pos.y + 3.0f), ImVec2(pos.x + barWidth * std::max(0.0f, std::min(1.0f, fraction)), pos.y + 3.0f + height), ImGui::GetColorU32(colour), 3.0f);
+    ImGui::Dummy(ImVec2(barWidth, height));
+    ImGui::SameLine();
+    ImGui::TextColored(MUTED, "%s", value.c_str());
+}
+
+// Called with g_state.mutex held: what Forge computed, a few seconds after each log landed.
 static void RenderStats() {
-    if (!g_state.hasPve && !g_state.hasWvw) { ImGui::TextColored(MUTED, "%s", "Rien encore ce soir : les chiffres arrivent quelques secondes après chaque log envoyé par Forge Uploader."); return; }
+    if (!g_state.hasPve && !g_state.hasWvw) { Callout(MUTED, "Rien encore ce soir : les chiffres de Forge arrivent 20 à 40 s après chaque log envoyé par Forge Uploader. L'onglet Combats, lui, lit les logs tout de suite."); return; }
     if (g_state.hasPve) {
         const PveStats& p = g_state.pve;
-        ImGui::TextColored(GOLD, "%s", "Dernier essai");
+        SectionTitle("Dernier essai · Forge", p.boss);
         ImGui::SameLine();
-        ImGui::TextColored(MUTED, "· ce soir %d essai(s), %d kill(s), %d mort(s)", p.nightPlayed, p.nightKills, p.nightDeaths);
-        ImGui::TextUnformatted(p.boss.c_str());
-        ImGui::SameLine();
-        if (p.success) ImGui::TextColored(GREEN, "kill en %s", Clock(p.durationMs).c_str());
-        else ImGui::TextColored(RED, "wipe à %.1f %% (%s)", p.hpLeft, Clock(p.durationMs).c_str());
-        if (p.dps >= 0) { ImGui::Text("DPS cible : %s", Thousands(p.dps).c_str()); if (p.rank) { ImGui::SameLine(); ImGui::TextColored(MUTED, "· %de sur %d", p.rank, p.squad); } }
-        ImGui::Text("Morts : %d · à terre : %d", p.deaths, p.downs);
-        if (!p.fellFirst.empty()) ImGui::TextColored(RED, "Tombé(e) en premier : %s", p.fellFirst.c_str());
-        for (const auto& m : p.mechanics) { ImGui::Bullet(); ImGui::SameLine(); ImGui::Text("%s ×%d", m.first.c_str(), m.second); }
+        if (p.success) ImGui::TextColored(GREEN, "  kill en %s", Clock(p.durationMs).c_str());
+        else ImGui::TextColored(RED, "  wipe à %.1f %% · %s", p.hpLeft, Clock(p.durationMs).c_str());
+        ImGui::Spacing();
+        std::vector<Kpi> tiles;
+        tiles.push_back({ p.dps >= 0 ? Thousands(p.dps) : "—", "DPS cible", p.rank ? std::to_string(p.rank) + "e sur " + std::to_string(p.squad) : "", SKY });
+        tiles.push_back({ std::to_string(p.deaths), "Morts", std::to_string(p.downs) + " à terre", p.deaths ? RED : GREEN });
+        tiles.push_back({ std::to_string(p.nightKills) + "/" + std::to_string(p.nightPlayed), "Kills ce soir", std::to_string(p.nightDeaths) + " mort(s) au total", GOLD });
+        KpiRow(tiles);
+        if (!p.fellFirst.empty()) Callout(RED, "Tombé(e) en premier : " + p.fellFirst);
+        if (!p.mechanics.empty()) {
+            ImGui::TextColored(GOLD, "%s", "Mécaniques prises");
+            int top = std::max(1, p.mechanics.front().second);
+            for (const auto& m : p.mechanics) BarRow(m.first, (float)m.second / (float)top, GOLD, "×" + std::to_string(m.second));
+        }
         ImGui::Spacing();
     }
     if (g_state.hasWvw) {
         const WvwStats& w = g_state.wvw;
-        if (g_state.hasPve) ImGui::Separator();
-        ImGui::TextColored(GOLD, "%s", "McM");
-        ImGui::SameLine();
-        ImGui::TextColored(MUTED, "· %s : %d combat(s), %d kills / %d morts", w.title.c_str(), w.fights, w.kills, w.deaths);
+        if (g_state.hasPve) { ImGui::Separator(); ImGui::Spacing(); }
+        SectionTitle("McM · Forge", w.title);
+        std::vector<Kpi> tiles;
+        tiles.push_back({ std::to_string(w.fights), "Combats", Clock(w.seconds * 1000) + " de combat", SKY });
+        tiles.push_back({ std::to_string(w.kills), "Kills", std::to_string(w.enemyDowns) + " ennemis à terre", GREEN });
+        tiles.push_back({ std::to_string(w.deaths), "Morts", std::to_string(w.squadDowns) + " à terre", RED });
+        char kd[16]; snprintf(kd, sizeof(kd), "%.1f", w.deaths ? (double)w.kills / w.deaths : (double)w.kills);
+        tiles.push_back({ kd, "K/D", "", w.kills >= w.deaths ? GREEN : RED });
+        KpiRow(tiles);
         if (w.hasLast) {
-            ImGui::Text("Dernier combat : %s, %s, %d en escouade%s", w.lastMap.c_str(), Clock(w.lastDuration * 1000).c_str(), w.lastSquad, w.lastAllies ? (" +" + std::to_string(w.lastAllies) + " alliés").c_str() : "");
-            if (!w.teams.empty()) { std::string teams; for (const auto& t : w.teams) teams += (teams.empty() ? "" : " · ") + t.first + " " + std::to_string(t.second); ImGui::TextColored(MUTED, "Ennemis : %s", teams.c_str()); }
-            ImGui::TextColored(GREEN, "%d kills, %d à terre", w.lastKills, w.lastEnemyDowns);
+            ImGui::TextColored(GOLD, "%s", "Dernier combat");
             ImGui::SameLine();
-            ImGui::TextColored(RED, "· %d morts, %d à terre", w.lastDeaths, w.lastSquadDowns);
-            ImGui::Text("Dégâts : %s%s", Thousands(w.lastDamage).c_str(), w.lastEnemyDamage >= 0 ? (" · reçus " + Thousands(w.lastEnemyDamage)).c_str() : "");
-            if (w.lastStability >= 0) ImGui::Text("Stabilité : %d %% du combat", w.lastStability);
-            for (const auto& f : w.findings) ImGui::TextColored(f.first == "bad" ? RED : f.first == "warn" ? GOLD : GREEN, "%s", f.second.c_str());
+            ImGui::TextColored(MUTED, "· %s · %s · %d en escouade%s", w.lastMap.c_str(), Clock(w.lastDuration * 1000).c_str(), w.lastSquad, w.lastAllies ? (" + " + std::to_string(w.lastAllies) + " alliés").c_str() : "");
+            if (!w.teams.empty()) {
+                int shown = 0;
+                for (const auto& t : w.teams) { if (shown++) ImGui::SameLine(0, 12); ImGui::TextColored(TeamColour(t.first), "%s %d", TeamLabel(t.first), t.second); }
+            }
+            int total = std::max(1, w.lastKills + w.lastDeaths);
+            BarRow("Kills " + std::to_string(w.lastKills), (float)w.lastKills / (float)total, GREEN, std::to_string(w.lastEnemyDowns) + " à terre");
+            BarRow("Morts " + std::to_string(w.lastDeaths), (float)w.lastDeaths / (float)total, RED, std::to_string(w.lastSquadDowns) + " à terre");
+            double damageTotal = std::max(1.0, w.lastDamage + std::max(0.0, w.lastEnemyDamage));
+            BarRow("Dégâts infligés", (float)(w.lastDamage / damageTotal), SKY, Thousands(w.lastDamage));
+            if (w.lastEnemyDamage >= 0) BarRow("Dégâts reçus", (float)(w.lastEnemyDamage / damageTotal), RED, Thousands(w.lastEnemyDamage));
+            if (w.lastStability >= 0) BarRow("Stabilité", w.lastStability / 100.0f, w.lastStability >= 70 ? GREEN : w.lastStability >= 40 ? GOLD : RED, std::to_string(w.lastStability) + " % du combat");
+            ImGui::Spacing();
+            for (const auto& f : w.findings) Callout(f.first == "bad" ? RED : f.first == "warn" ? GOLD : GREEN, f.second);
         }
         if (w.hasMe) {
-            ImGui::Spacing();
-            ImGui::TextColored(SKY, "Ma soirée (%s)", w.meRole.c_str());
-            ImGui::Text("Dégâts %s (%s /s) · %d kills · %d à terre · %d morts", Thousands(w.meDamage).c_str(), Thousands(w.meDps).c_str(), w.meKills, w.meDowns, w.meDeaths);
-            if (w.meDist >= 0) ImGui::Text("Distance au tag : %.0f", w.meDist);
-            if (w.meStability >= 0) ImGui::Text("Stabilité générée : %.1f stacks", w.meStability);
+            ImGui::TextColored(SKY, "Ma soirée · %s", w.meRole.c_str());
+            std::vector<Kpi> mine;
+            mine.push_back({ Thousands(w.meDamage), "Dégâts", Thousands(w.meDps) + " /s", SKY });
+            mine.push_back({ std::to_string(w.meKills), "Kills", "", GREEN });
+            mine.push_back({ std::to_string(w.meDeaths), "Morts", std::to_string(w.meDowns) + " à terre", w.meDeaths ? RED : GREEN });
+            if (w.meDist >= 0) { char dist[16]; snprintf(dist, sizeof(dist), "%.0f", w.meDist); mine.push_back({ dist, "Dist. au tag", w.meDist <= 300 ? "collé" : w.meDist <= 600 ? "correct" : "loin", w.meDist <= 600 ? GREEN : GOLD }); }
+            if (w.meStability >= 0) { char stab[16]; snprintf(stab, sizeof(stab), "%.1f", w.meStability); mine.push_back({ stab, "Stab générée", "stacks moyens", GOLD }); }
+            KpiRow(mine);
         }
     }
 }
@@ -487,7 +576,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 4, 0, 0 };
+    Def.Version = { 0, 4, 1, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
