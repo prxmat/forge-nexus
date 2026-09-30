@@ -512,9 +512,9 @@ static void RenderStrip() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(10, 10));
     ImGui::SetNextWindowBgAlpha(0.0f);
-    ImGui::SetNextWindowPos(ImVec2(330.0f, 30.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(st.stripX, st.stripY), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(iconBox + barWidth, height));
-    if (ImGui::Begin("Forge strip", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBackground)) {
+    if (ImGui::Begin("Forge strip", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoMove)) {
         ImDrawList* draw = ImGui::GetWindowDrawList();
         ImVec2 pos = ImGui::GetCursorScreenPos();
         const ImU32 dark = IM_COL32(24, 24, 28, 235), outline = IM_COL32(60, 60, 66, 255), white = IM_COL32(245, 245, 245, 255);
@@ -553,8 +553,26 @@ static void RenderStrip() {
                 segment(barWidth, f.success ? IM_COL32(52, 140, 88, 235) : IM_COL32(150, 52, 48, 235), text);
             }
         }
-        ImGui::SetCursorScreenPos(pos);
-        if (ImGui::InvisibleButton("forge-strip", ImVec2(iconBox + barWidth, height))) {
+        // The icon is the handle: drag it to move the strip. The bar itself opens and closes the panel.
+        static bool dragging = false;
+        bool onIcon = ImGui::IsMouseHoveringRect(pos, ImVec2(pos.x + iconBox, pos.y + height));
+        if (onIcon && ImGui::IsMouseClicked(0)) dragging = true;
+        if (dragging) {
+            if (ImGui::IsMouseDown(0)) {
+                ImVec2 delta = ImGui::GetIO().MouseDelta;
+                ImVec2 at = ImGui::GetWindowPos();
+                ImGui::SetWindowPos(ImVec2(at.x + delta.x, at.y + delta.y), ImGuiCond_Always);
+            } else {
+                dragging = false;
+                ImVec2 at = ImGui::GetWindowPos();
+                std::lock_guard<std::mutex> lock(g_state.mutex);
+                g_state.settings.stripX = at.x;
+                g_state.settings.stripY = at.y;
+                SaveSettingsLocked(SettingsPath);
+            }
+        } else if (onIcon) ImGui::SetTooltip("%s", "Glisser pour déplacer la barre");
+        ImGui::SetCursorScreenPos(ImVec2(pos.x + iconBox, pos.y));
+        if (ImGui::InvisibleButton("forge-strip", ImVec2(barWidth, height))) {
             std::lock_guard<std::mutex> lock(g_state.mutex);
             g_state.settings.showWidget = !g_state.settings.showWidget;
             SaveSettingsLocked(SettingsPath);
@@ -623,7 +641,7 @@ static void RenderWidget() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * scale, 6 * scale));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6 * scale, 3 * scale));
     ImGui::SetNextWindowBgAlpha(st.panelAlpha);
-    ImGui::SetNextWindowPos(ImVec2(20.0f, 60.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(st.panelX, st.panelY), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(250.0f * scale, 0.0f), ImGuiCond_Always);
     if (ImGui::Begin("Forge widget", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse)) {
         ImGui::SetWindowFontScale(scale);
@@ -722,6 +740,8 @@ static void RenderWidget() {
             }
         }
         ImGui::SetWindowFontScale(1.0f);
+        ImVec2 at = ImGui::GetWindowPos();
+        if ((at.x != st.panelX || at.y != st.panelY) && !ImGui::IsMouseDown(0)) { st.panelX = at.x; st.panelY = at.y; SaveSettingsLocked(SettingsPath); }
     }
     ImGui::End();
     ImGui::PopStyleVar(2);
@@ -986,7 +1006,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 6, 0, 0 };
+    Def.Version = { 0, 6, 1, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;

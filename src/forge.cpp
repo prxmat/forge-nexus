@@ -93,6 +93,10 @@ void LoadSettings(const std::string& path) {
         g_state.settings.showWidget = data.value("show_widget", true);
         g_state.settings.showStrip = data.value("show_strip", true);
         g_state.settings.gameBuild = data.value("game_build", 0u);
+        g_state.settings.stripX = data.value("strip_x", 330.0f);
+        g_state.settings.stripY = data.value("strip_y", 30.0f);
+        g_state.settings.panelX = data.value("panel_x", 20.0f);
+        g_state.settings.panelY = data.value("panel_y", 60.0f);
         g_state.settings.panelBars = data.value("panel_bars", true);
         g_state.settings.panelNames = data.value("panel_names", true);
         g_state.settings.panelIcons = data.value("panel_icons", true);
@@ -123,6 +127,10 @@ void SaveSettingsLocked(const std::string& path) {
         data["show_widget"] = g_state.settings.showWidget;
         data["show_strip"] = g_state.settings.showStrip;
         data["game_build"] = g_state.settings.gameBuild;
+        data["strip_x"] = g_state.settings.stripX;
+        data["strip_y"] = g_state.settings.stripY;
+        data["panel_x"] = g_state.settings.panelX;
+        data["panel_y"] = g_state.settings.panelY;
         data["panel_bars"] = g_state.settings.panelBars;
         data["panel_names"] = g_state.settings.panelNames;
         data["panel_icons"] = g_state.settings.panelIcons;
