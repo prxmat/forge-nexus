@@ -1,5 +1,6 @@
 #include "fights.h"
 #include "live.h"
+#include "forge.h"
 
 #include <windows.h>
 #include <shlobj.h>
@@ -83,16 +84,21 @@ void Loop() {
                 size_t slash = path.find_last_of(L'\\');
                 std::wstring base = slash == std::wstring::npos ? path : path.substr(slash + 1);
                 fight.file = std::string(base.begin(), base.end());
-                std::lock_guard<std::mutex> lock(g_fights.mutex);
-                if (fight.ok) {
-                    LiveDismiss();
-                    g_fights.fights.push_front(fight);
-                    if (g_fights.fights.size() > HISTORY) g_fights.fights.pop_back();
-                    g_fights.selected = 0;
-                    g_fights.status = "Dernier log lu : " + fight.file;
-                } else {
-                    g_fights.status = "Log illisible (" + fight.error + ") : " + fight.file;
+                {
+                    std::lock_guard<std::mutex> lock(g_fights.mutex);
+                    if (fight.ok) {
+                        LiveDismiss();
+                        g_fights.fights.push_front(fight);
+                        if (g_fights.fights.size() > HISTORY) g_fights.fights.pop_back();
+                        g_fights.selected = 0;
+                        g_fights.status = "Dernier log lu : " + fight.file;
+                    } else {
+                        g_fights.status = "Log illisible (" + fight.error + ") : " + fight.file;
+                    }
                 }
+                // Outside the lock: the report is a network call.
+                if (!fight.ok) ReportError("Log illisible : " + fight.error, "{\"file\":\"" + fight.file + "\"}");
+                else if (fight.wvw && fight.teams.empty() && fight.eventsRead) ReportError("Log McM sans équipe", "{\"file\":\"" + fight.file + "\",\"agents\":" + std::to_string(fight.agentsRead) + ",\"players\":" + std::to_string(fight.playersRead) + ",\"withTeam\":" + std::to_string(fight.playersWithTeam) + ",\"colours\":" + std::to_string(fight.coloursKnown) + "}");
             }
             if (g_fights.status.empty()) { std::lock_guard<std::mutex> lock(g_fights.mutex); g_fights.status = "En attente du prochain combat…"; }
         }

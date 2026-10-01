@@ -115,6 +115,11 @@ void StartWvwEvening();
 // A lead's click: op is start | go | kill | undo | skip | end.
 void SendOp(const std::string& op, const std::string& bossId);
 
+// The addon's version, for error reports.
+extern std::string g_addonVersion;
+// What went wrong on this PC, to Forge (then Sentry): once per message and per ten minutes. Blocking: network.
+void ReportError(const std::string& message, const std::string& contextJson = "{}");
+
 // HTTP helpers (WinHTTP). Return the status code, body in `out`.
 int HttpGet(const std::string& url, const std::string& token, std::string& out);
 int HttpPostJson(const std::string& url, const std::string& token, const std::string& body, std::string& out);

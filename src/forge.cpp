@@ -1,4 +1,5 @@
 #include "forge.h"
+#include <thread>
 #include "arcdps.h"
 #include "live.h"
 
@@ -74,6 +75,30 @@ static int HttpRequest(const wchar_t* verb, const std::string& url, const std::s
 }
 
 int HttpGet(const std::string& url, const std::string& token, std::string& out) { return HttpRequest(L"GET", url, token, "", out); }
+
+std::string g_addonVersion;
+
+void ReportError(const std::string& message, const std::string& contextJson) {
+    static std::mutex mutex;
+    static std::map<std::string, uint64_t> lastAt;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        uint64_t now = GetTickCount64();
+        auto it = lastAt.find(message);
+        if (it != lastAt.end() && now - it->second < 10 * 60 * 1000) return;
+        lastAt[message] = now;
+    }
+    Settings settings;
+    { std::lock_guard<std::mutex> lock(g_state.mutex); settings = g_state.settings; }
+    if (settings.token.empty()) return;
+    json body;
+    body["tool"] = "addon";
+    body["version"] = g_addonVersion;
+    body["message"] = message;
+    try { body["context"] = json::parse(contextJson); } catch (...) { body["context"] = json::object(); }
+    std::string out;
+    HttpPostJson(settings.forgeUrl + "/api/client-errors", settings.token, body.dump(), out);
+}
 int HttpPostJson(const std::string& url, const std::string& token, const std::string& body, std::string& out) { return HttpRequest(L"POST", url, token, body, out); }
 
 void LoadSettings(const std::string& path) {
@@ -244,6 +269,7 @@ bool PollNight() {
         g_state.status = "Connecté : " + night.member;
     } catch (const std::exception& error) {
         g_state.status = std::string("Réponse de Forge illisible (") + error.what() + ") : " + body.substr(0, 80);
+        std::thread([message = std::string("Réponse de /api/live/night illisible : ") + error.what()]() { ReportError(message); }).detach();
     }
     return true;
 }

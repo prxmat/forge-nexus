@@ -1000,6 +1000,7 @@ static void AddonLoad(AddonAPI_t* api) {
     SettingsPath = std::string(API->Paths_GetAddonDirectory("Forge")) + "\\settings.json";
     CreateDirectoryA(API->Paths_GetAddonDirectory("Forge"), nullptr);
     LoadSettings(SettingsPath);
+    g_addonVersion = VersionText();
     { std::lock_guard<std::mutex> lock(g_state.mutex); WindowVisible = g_state.settings.showWindow; g_fights.logsDir = g_state.settings.logsDir.empty() ? DefaultLogsDir() : Widen(g_state.settings.logsDir); }
     StartFightsWatcher();
     API->InputBinds_RegisterWithString(KB_TOGGLE, ToggleWindow, "CTRL+SHIFT+F");
@@ -1046,7 +1047,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 8, 0, 0 };
+    Def.Version = { 0, 8, 1, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
