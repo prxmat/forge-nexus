@@ -35,7 +35,7 @@ struct LiveAgent {
     uint16_t team = 0;
     int subgroup = 0;
     bool self = false, player = false, seen = false;
-    uint64_t damage = 0, taken = 0; // taken: on non-players, to find the boss.
+    uint64_t damage = 0, strike = 0, condi = 0, taken = 0; // taken: on non-players, to find the boss.
     int downs = 0, deaths = 0, kills = 0;
     double hp = -1;
 };
@@ -55,7 +55,7 @@ void Reset(LiveState& s) {
     s.active = false; s.finished = false; s.success = false;
     s.startTick = 0; s.finishedTick = 0;
     s.byInstid.clear();
-    for (auto& [id, a] : s.agents) { a.damage = 0; a.taken = 0; a.downs = 0; a.deaths = 0; a.kills = 0; a.seen = false; a.hp = -1; }
+    for (auto& [id, a] : s.agents) { a.damage = 0; a.strike = 0; a.condi = 0; a.taken = 0; a.downs = 0; a.deaths = 0; a.kills = 0; a.seen = false; a.hp = -1; }
 }
 
 void Begin(LiveState& s) {
@@ -149,11 +149,11 @@ void LiveOnEvent(void* payload) {
     if (!attacker || !attacker->player || !target) return;
     if (s.wvwMap) {
         if (!target->player || !attacker->team || target->team == attacker->team) return;
-        if (damage > 0) attacker->damage += damage;
+        if (damage > 0) { attacker->damage += damage; if (ev->buff) attacker->condi += damage; else attacker->strike += damage; }
         if (ev->result == R_KillingBlow) attacker->kills++;
     } else {
         if (target->player) return;
-        if (damage > 0) { attacker->damage += damage; target->taken += damage; }
+        if (damage > 0) { attacker->damage += damage; if (ev->buff) attacker->condi += damage; else attacker->strike += damage; target->taken += damage; }
     }
 }
 
@@ -195,7 +195,7 @@ bool LiveSnapshot(ParsedFight& out) {
     f.durationMs = (s.finished ? s.finishedTick : GetTickCount64()) - s.startTick;
     uint16_t povTeam = 0;
     for (const auto& [id, a] : s.agents) if (a.self) povTeam = a.team;
-    auto lineOf = [](const LiveAgent& a) { PlayerLine line; line.name = a.name; line.account = a.account; line.spec = a.spec; line.subgroup = a.subgroup; line.damage = a.damage; line.downs = a.downs; line.deaths = a.deaths; line.kills = a.kills; line.pov = a.self; return line; };
+    auto lineOf = [](const LiveAgent& a) { PlayerLine line; line.name = a.name; line.account = a.account; line.spec = a.spec; line.subgroup = a.subgroup; line.damage = a.damage; line.strike = a.strike; line.condi = a.condi; line.downs = a.downs; line.deaths = a.deaths; line.kills = a.kills; line.pov = a.self; return line; };
     std::map<std::string, TeamSummary> teams;
     std::map<std::string, std::map<std::string, SpecCount>> teamSpecs;
     const LiveAgent* boss = nullptr;
@@ -205,9 +205,9 @@ bool LiveSnapshot(ParsedFight& out) {
         std::string colour = colourOf(a.team);
         if (f.wvw && !colour.empty()) {
             auto& team = teams[colour];
-            team.players++; team.deaths += a.deaths; team.downs += a.downs; team.kills += a.kills; team.damage += a.damage;
+            team.players++; team.deaths += a.deaths; team.downs += a.downs; team.kills += a.kills; team.damage += a.damage; team.strike += a.strike; team.condi += a.condi;
             auto& spec = teamSpecs[colour][a.spec];
-            spec.count++; spec.damage += a.damage; spec.deaths += a.deaths; spec.downs += a.downs;
+            spec.count++; spec.damage += a.damage; spec.strike += a.strike; spec.condi += a.condi; spec.deaths += a.deaths; spec.downs += a.downs;
         }
         bool squad = a.subgroup > 0 && (!f.wvw || a.team == povTeam || !a.team);
         if (squad || a.self) f.squad.push_back(lineOf(a));

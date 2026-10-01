@@ -7,20 +7,20 @@
 #include <string>
 #include <vector>
 
-struct SpecCount { std::string spec; int count = 0; uint64_t damage = 0; int deaths = 0, downs = 0; };
+struct SpecCount { std::string spec; int count = 0; uint64_t damage = 0, strike = 0, condi = 0; int deaths = 0, downs = 0; };
 
 struct TeamSummary {
     std::string name; // Red, Blue, Green (or the id when unknown).
     bool pov = false; // The recorder's team.
     int players = 0, deaths = 0, downs = 0, kills = 0;
-    uint64_t damage = 0; // On enemy players.
+    uint64_t damage = 0, strike = 0, condi = 0; // On enemy players; damage = strike + condi.
     std::vector<SpecCount> specs; // Sorted by count, descending.
 };
 
 struct PlayerLine {
     std::string name, account, spec;
     int subgroup = 0;
-    uint64_t damage = 0; // PvE: on non-players (the boss and its adds); WvW: on enemy players.
+    uint64_t damage = 0, strike = 0, condi = 0; // PvE: on non-players (the boss and its adds); WvW: on enemy players.
     int downs = 0, deaths = 0, kills = 0;
     bool pov = false;
 };

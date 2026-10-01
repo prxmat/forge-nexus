@@ -114,6 +114,8 @@ void LoadSettings(const std::string& path) {
         g_state.settings.panelAlpha = data.value("panel_alpha", 0.88f);
         g_state.settings.panelAllies = data.value("panel_allies", true);
         g_state.settings.panelAlliesTotal = data.value("panel_allies_total", true);
+        g_state.settings.panelStrike = data.value("panel_strike", false);
+        g_state.settings.panelCondi = data.value("panel_condi", false);
         g_state.settings.hideInCombat = data.value("hide_in_combat", false);
     } catch (...) {}
 }
@@ -151,6 +153,8 @@ void SaveSettingsLocked(const std::string& path) {
         data["panel_alpha"] = g_state.settings.panelAlpha;
         data["panel_allies"] = g_state.settings.panelAllies;
         data["panel_allies_total"] = g_state.settings.panelAlliesTotal;
+        data["panel_strike"] = g_state.settings.panelStrike;
+        data["panel_condi"] = g_state.settings.panelCondi;
         data["hide_in_combat"] = g_state.settings.hideInCombat;
     }
     std::ofstream file(path);

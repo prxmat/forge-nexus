@@ -308,11 +308,15 @@ ParsedFight ParseEvtcFile(const std::wstring& path) {
         bool vsPlayer = target && target->player;
         if (fight.wvw) {
             if (!vsPlayer || attacker.team.empty() || target->team == attacker.team) continue;
-            if (damage > 0) { lineOf(attacker).damage += damage; teams[attacker.team].damage += damage; teamSpecs[attacker.team][attacker.spec].damage += damage; }
+            if (damage > 0) {
+                bool condi = e.buff != 0;
+                auto add = [&](auto& x) { x.damage += damage; if (condi) x.condi += damage; else x.strike += damage; };
+                add(lineOf(attacker)); add(teams[attacker.team]); add(teamSpecs[attacker.team][attacker.spec]);
+            }
             if (e.result == R_KillingBlow) { lineOf(attacker).kills++; teams[attacker.team].kills++; }
         } else {
             if (vsPlayer) continue; // Damage on players (mind control, allies) is not boss damage.
-            if (damage > 0) lineOf(attacker).damage += damage;
+            if (damage > 0) { PlayerLine& line = lineOf(attacker); line.damage += damage; if (e.buff != 0) line.condi += damage; else line.strike += damage; }
         }
     }
 

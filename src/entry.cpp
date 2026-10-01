@@ -640,6 +640,8 @@ static void PanelMenu(Settings& st) {
         changed |= ImGui::MenuItem("Morts", nullptr, &st.panelDeaths);
         changed |= ImGui::MenuItem("À terre", nullptr, &st.panelDowns);
         changed |= ImGui::MenuItem("Dégâts", nullptr, &st.panelDamage);
+        changed |= ImGui::MenuItem("Dégâts directs", nullptr, &st.panelStrike);
+        changed |= ImGui::MenuItem("Dégâts d'altération", nullptr, &st.panelCondi);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Style")) {
@@ -702,16 +704,16 @@ static void RenderWidget() {
                 // Own team: the squad alone, or with the allies around it, for the rows and for the totals as set.
                 std::vector<SpecCount> squadRows;
                 int squadPlayers = 0, squadDeaths = 0, squadDowns = 0, squadKills = 0;
-                uint64_t squadDamage = 0;
+                uint64_t squadDamage = 0, squadStrike = 0, squadCondi = 0;
                 if (t.pov) {
                     std::map<std::string, SpecCount> bySpec;
-                    for (const auto& line : f.squad) { auto& sc = bySpec[line.spec]; sc.spec = line.spec; sc.count++; sc.damage += line.damage; sc.deaths += line.deaths; sc.downs += line.downs; squadPlayers++; squadDeaths += line.deaths; squadDowns += line.downs; squadDamage += line.damage; squadKills += line.kills; }
+                    for (const auto& line : f.squad) { auto& sc = bySpec[line.spec]; sc.spec = line.spec; sc.count++; sc.damage += line.damage; sc.strike += line.strike; sc.condi += line.condi; sc.deaths += line.deaths; sc.downs += line.downs; squadPlayers++; squadDeaths += line.deaths; squadDowns += line.downs; squadDamage += line.damage; squadStrike += line.strike; squadCondi += line.condi; squadKills += line.kills; }
                     for (auto& [spec, sc] : bySpec) squadRows.push_back(sc);
                 }
                 bool alliesInRows = !t.pov || st.panelAllies, alliesInTotals = !t.pov || st.panelAlliesTotal;
                 std::vector<SpecCount> rows = alliesInRows ? t.specs : squadRows;
                 int players = alliesInTotals ? t.players : squadPlayers, deaths = alliesInTotals ? t.deaths : squadDeaths, downs = alliesInTotals ? t.downs : squadDowns, kills = alliesInTotals ? t.kills : squadKills;
-                uint64_t damage = alliesInTotals ? t.damage : squadDamage;
+                uint64_t damage = alliesInTotals ? t.damage : squadDamage, strike = alliesInTotals ? t.strike : squadStrike, condi = alliesInTotals ? t.condi : squadCondi;
                 float lh = ImGui::GetTextLineHeight();
                 // Own team with the allies in: each total also split squad / allies.
                 bool split = t.pov && alliesInTotals && st.panelAllies && t.players > squadPlayers;
@@ -720,7 +722,10 @@ static void RenderWidget() {
                 if (st.panelKd) { UiIcon("kill", lh); ImGui::Text("K/D : %.1f", deaths ? (double)kills / deaths : (double)kills); }
                 if (st.panelDeaths) { UiIcon("death", lh); ImGui::Text("Morts : %d%s", deaths, part(squadDeaths, deaths).c_str()); }
                 if (st.panelDowns) { UiIcon("downed", lh); ImGui::Text("À terre : %d%s", downs, part(squadDowns, downs).c_str()); }
-                if (st.panelDamage) { UiIcon("damage", lh); ImGui::Text("Dégâts : %s%s", Thousands((double)damage).c_str(), split ? (" (" + Thousands((double)squadDamage) + " + " + Thousands((double)(damage - squadDamage)) + ")").c_str() : ""); }
+                auto money = [&](uint64_t all, uint64_t squad) { return Thousands((double)all) + (split ? " (" + Thousands((double)squad) + " + " + Thousands((double)(all - squad)) + ")" : ""); };
+                if (st.panelDamage) { UiIcon("damage", lh); ImGui::Text("Dégâts : %s", money(damage, squadDamage).c_str()); }
+                if (st.panelStrike) { UiIcon("damage", lh); ImGui::Text("Directs : %s", money(strike, squadStrike).c_str()); }
+                if (st.panelCondi) { UiIcon("damage", lh); ImGui::Text("Altérations : %s", money(condi, squadCondi).c_str()); }
                 ImGui::Separator();
                 std::sort(rows.begin(), rows.end(), [&](const SpecCount& a, const SpecCount& b) { return st.sortByDamage ? a.damage > b.damage : (a.count != b.count ? a.count > b.count : a.damage > b.damage); });
                 uint64_t maxDamage = 1; int maxCount = 1;
@@ -1041,7 +1046,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 7, 8, 0 };
+    Def.Version = { 0, 8, 0, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
     Def.Load = AddonLoad;
