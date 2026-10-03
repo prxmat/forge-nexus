@@ -1,4 +1,5 @@
 #include "live.h"
+#include "arcevents.h"
 
 #include <windows.h>
 #include <algorithm>
@@ -9,20 +10,9 @@ std::mutex g_teamColoursMutex;
 std::map<uint32_t, std::string> g_teamColours;
 
 namespace {
-// arcdps' realtime structures (its extension API): the event is the log's 64-byte one, the agent is short.
-#pragma pack(push, 1)
-struct CombatEvent {
-    uint64_t time, srcAgent, dstAgent;
-    int32_t value, buffDmg;
-    uint32_t overstackValue, skillId;
-    uint16_t srcInstid, dstInstid, srcMasterInstid, dstMasterInstid;
-    uint8_t iff, buff, result, isActivation, isBuffRemove, isNinety, isFifty, isMoving, isStateChange, isFlanking, isShields, isOffCycle;
-    uint32_t pad;
-};
-#pragma pack(pop)
-static_assert(sizeof(CombatEvent) == 64, "arcdps combat event is 64 bytes");
-struct AgentShort { char* name; uintptr_t id; uint32_t prof, elite, self; uint16_t team; };
-struct EvCombatData { CombatEvent* ev; AgentShort* src; AgentShort* dst; char* skillname; uint64_t id, revision; };
+using arc::CombatEvent;
+using arc::AgentShort;
+using arc::EvCombatData;
 
 enum State : uint8_t { SC_None = 0, SC_EnterCombat = 1, SC_ExitCombat = 2, SC_ChangeUp = 3, SC_ChangeDead = 4, SC_ChangeDown = 5, SC_HealthUpdate = 8, SC_LogStart = 9, SC_LogEnd = 10, SC_Reward = 17 };
 enum Result : uint8_t { R_Normal = 0, R_Critical = 1, R_Glance = 2, R_KillingBlow = 8 };

@@ -9,10 +9,24 @@
 #include <sstream>
 
 #include "json.hpp"
+#include "boons.h"
 
 using json = nlohmann::json;
 
 ForgeState g_state;
+
+// What a support wants on screen from the start; the other boons are listed, off.
+std::vector<AuraRule> DefaultAuras() {
+    std::vector<AuraRule> out;
+    for (const auto& boon : BOONS) {
+        AuraRule rule;
+        rule.buff = boon.id;
+        rule.on = boon.id == 1187 || boon.id == 30328 || boon.id == 740 || boon.id == 1122;
+        rule.minStacks = boon.id == 740 ? 10 : 1;
+        out.push_back(rule);
+    }
+    return out;
+}
 
 static std::wstring Widen(const std::string& text) {
     if (text.empty()) return L"";
@@ -142,6 +156,56 @@ void LoadSettings(const std::string& path) {
         g_state.settings.panelStrike = data.value("panel_strike", false);
         g_state.settings.panelCondi = data.value("panel_condi", false);
         g_state.settings.hideInCombat = data.value("hide_in_combat", false);
+        Settings& s = g_state.settings;
+        s.timersOn = data.value("timers_on", true);
+        s.timersFromTaimi = data.value("timers_from_taimi", true);
+        s.centerText = data.value("center_text", true);
+        s.speakSounds = data.value("speak_sounds", true);
+        s.speakAlerts = data.value("speak_alerts", true);
+        s.speakWarnings = data.value("speak_warnings", true);
+        s.beepDue = data.value("beep_due", false);
+        s.warnAt = data.value("warn_at", 3);
+        s.timerVoice = data.value("timer_voice", "");
+        s.auraVoice = data.value("aura_voice", "");
+        s.voiceVolume = data.value("voice_volume", 90);
+        s.voiceRate = data.value("voice_rate", 1);
+        s.timersOff.clear();
+        if (data.contains("timers_off") && data["timers_off"].is_array()) for (const auto& id : data["timers_off"]) if (id.is_string()) s.timersOff.push_back(id.get<std::string>());
+        s.alertsLocked = data.value("alerts_locked", true);
+        s.barsX = data.value("bars_x", 40.0f);
+        s.barsY = data.value("bars_y", 380.0f);
+        s.barWidth = data.value("bar_width", 300.0f);
+        s.aurasX = data.value("auras_x", 760.0f);
+        s.aurasY = data.value("auras_y", 640.0f);
+        s.auraSize = data.value("aura_size", 44.0f);
+        s.centerY = data.value("center_y", 0.28f);
+        s.centerScale = data.value("center_scale", 1.5f);
+        s.aurasOn = data.value("auras_on", true);
+        if (data.contains("auras") && data["auras"].is_array()) {
+            // Saved rules first, in their order; boons added since then come after, as their defaults.
+            std::vector<AuraRule> rules;
+            for (const auto& item : data["auras"]) {
+                if (!item.is_object()) continue;
+                AuraRule rule;
+                rule.buff = item.value("buff", 0u);
+                if (!FindBoon(rule.buff)) continue;
+                bool known = false;
+                for (const auto& other : rules) if (other.buff == rule.buff) known = true;
+                if (known) continue;
+                rule.on = item.value("on", false);
+                rule.show = item.value("show", 0);
+                rule.minStacks = item.value("min_stacks", 1);
+                rule.combatOnly = item.value("combat_only", true);
+                rule.sound = item.value("sound", 0);
+                rules.push_back(rule);
+            }
+            for (const auto& fallback : DefaultAuras()) {
+                bool known = false;
+                for (const auto& rule : rules) if (rule.buff == fallback.buff) known = true;
+                if (!known) rules.push_back(fallback);
+            }
+            s.auras = rules;
+        }
     } catch (...) {}
 }
 
@@ -181,6 +245,33 @@ void SaveSettingsLocked(const std::string& path) {
         data["panel_strike"] = g_state.settings.panelStrike;
         data["panel_condi"] = g_state.settings.panelCondi;
         data["hide_in_combat"] = g_state.settings.hideInCombat;
+        const Settings& s = g_state.settings;
+        data["timers_on"] = s.timersOn;
+        data["timers_from_taimi"] = s.timersFromTaimi;
+        data["center_text"] = s.centerText;
+        data["speak_sounds"] = s.speakSounds;
+        data["speak_alerts"] = s.speakAlerts;
+        data["speak_warnings"] = s.speakWarnings;
+        data["beep_due"] = s.beepDue;
+        data["warn_at"] = s.warnAt;
+        data["timer_voice"] = s.timerVoice;
+        data["aura_voice"] = s.auraVoice;
+        data["voice_volume"] = s.voiceVolume;
+        data["voice_rate"] = s.voiceRate;
+        data["timers_off"] = s.timersOff;
+        data["alerts_locked"] = s.alertsLocked;
+        data["bars_x"] = s.barsX;
+        data["bars_y"] = s.barsY;
+        data["bar_width"] = s.barWidth;
+        data["auras_x"] = s.aurasX;
+        data["auras_y"] = s.aurasY;
+        data["aura_size"] = s.auraSize;
+        data["center_y"] = s.centerY;
+        data["center_scale"] = s.centerScale;
+        data["auras_on"] = s.aurasOn;
+        json rules = json::array();
+        for (const auto& rule : s.auras) rules.push_back({ { "buff", rule.buff }, { "on", rule.on }, { "show", rule.show }, { "min_stacks", rule.minStacks }, { "combat_only", rule.combatOnly }, { "sound", rule.sound } });
+        data["auras"] = rules;
     }
     std::ofstream file(path);
     file << data.dump(2);

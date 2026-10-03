@@ -15,6 +15,7 @@
 #include "arcdps.h"
 #include "live.h"
 #include "spec_icons.h"
+#include "alerts.h"
 #include <map>
 #include <vector>
 
@@ -54,7 +55,7 @@ static void ToggleWidget(const char*, bool release) {
 static bool InCombat() { return MumbleLink && MumbleLink->Context.IsInCombat; }
 static std::string VersionText() { return std::to_string(Def.Version.Major) + "." + std::to_string(Def.Version.Minor) + "." + std::to_string(Def.Version.Build); }
 static void OnArcEventLocal(void*) { ArcdpsNoteEvent(); }
-static void OnArcEventSquad(void* payload) { ArcdpsNoteEvent(); LiveOnEvent(payload); }
+static void OnArcEventSquad(void* payload) { ArcdpsNoteEvent(); LiveOnEvent(payload); AlertsOnArcEvent(payload); }
 static bool OnWvwMap() { return MumbleLink && MumbleLink->Context.MapType >= Mumble::EMapType::WvW_EternalBattlegrounds && MumbleLink->Context.MapType <= Mumble::EMapType::WvW_ObsidianSanctum; }
 // The fight to show: the live one while it is on (newest slot), else the log picked in the history. g_fights.mutex held.
 static const ParsedFight* ShownFight(bool newestOnly) {
@@ -798,7 +799,7 @@ static void RenderWindow() {
         if (!g_state.hasNight) {
             ImGui::TextColored(g_state.tokenOk ? MUTED : RED, "%s", g_state.status.c_str());
             if (!g_state.tokenOk) Wrapped("Options Nexus → Forge : colle ton token Forge Uploader (Forge → Mon suivi → Réglages → Forge Uploader).");
-            else { ImGui::Separator(); if (ImGui::BeginTabBar("forge-tabs-nonight")) { if (ImGui::BeginTabItem("Combats")) { std::lock_guard<std::mutex> flock(g_fights.mutex); RenderCombats(); ImGui::EndTabItem(); } if (ImGui::BeginTabItem("Forge")) { RenderStats(); ImGui::EndTabItem(); } ImGui::EndTabBar(); } }
+            else { ImGui::Separator(); if (ImGui::BeginTabBar("forge-tabs-nonight")) { if (ImGui::BeginTabItem("Combats")) { std::lock_guard<std::mutex> flock(g_fights.mutex); RenderCombats(); ImGui::EndTabItem(); } if (ImGui::BeginTabItem("Forge")) { RenderStats(); ImGui::EndTabItem(); } if (ImGui::BeginTabItem("Alertes")) { AlertsTab(); ImGui::EndTabItem(); } ImGui::EndTabBar(); } }
         } else {
             const LiveNight& n = g_state.night;
             // Header: the roster (a combo when the member plays in several), day, phase.
@@ -851,8 +852,10 @@ static void RenderWindow() {
                 { std::lock_guard<std::mutex> flock(g_fights.mutex); RenderCombats(); }
                 ImGui::Separator();
                 RenderStats();
+                if (ImGui::CollapsingHeader("Alertes")) AlertsTab();
             } else if (!n.hasCurrent) {
                 ImGui::TextColored(MUTED, "%s", "Aucun boss prévu pour cette soirée.");
+                if (ImGui::CollapsingHeader("Alertes")) AlertsTab();
             } else if (ImGui::BeginTabBar("forge-tabs")) {
                 const LiveBoss& cur = n.current;
                 if (ImGui::BeginTabItem("En direct")) {
@@ -917,6 +920,7 @@ static void RenderWindow() {
                 }
                 if (ImGui::BeginTabItem("Combats")) { std::lock_guard<std::mutex> flock(g_fights.mutex); RenderCombats(); ImGui::EndTabItem(); }
                 if (ImGui::BeginTabItem("Stats Forge")) { RenderStats(); ImGui::EndTabItem(); }
+                if (ImGui::BeginTabItem("Alertes")) { AlertsTab(); ImGui::EndTabItem(); }
                 if (n.hasNext && ImGui::BeginTabItem("Prochain boss")) {
                     ImGui::TextUnformatted(n.next.label.c_str());
                     if (n.next.hasGuide) {
@@ -973,6 +977,8 @@ static void RenderOptions() {
     ArcdpsLine(true);
     std::lock_guard<std::mutex> lock(g_state.mutex);
     ImGui::TextColored(g_state.tokenOk ? GREEN : MUTED, "%s", g_state.status.c_str());
+    ImGui::Spacing();
+    if (ImGui::CollapsingHeader("Alertes Forge : timers, auras, voix")) AlertsTab();
 }
 
 static std::map<std::string, Texture_t*> SpecTextures;
@@ -1012,6 +1018,10 @@ static void AddonLoad(AddonAPI_t* api) {
     API->GUI_Register(RT_Render, RenderWidget);
     API->InputBinds_RegisterWithString(KB_WIDGET, ToggleWidget, "(null)");
     MumbleLink = (Mumble::Data*)API->DataLink_Get(DL_MUMBLE_LINK);
+    API->Localization_Set(KB_TOGGLE, "fr", "Forge : ouvrir la fenêtre");
+    API->Localization_Set(KB_WIDGET, "fr", "Forge : panneau du combat");
+    AlertsLoad(API, NexusLink, MumbleLink, SettingsPath);
+    API->GUI_Register(RT_Render, AlertsRender);
     // Nexus forwards arcdps' combat events to subscribers: a heartbeat that says arcdps still works.
     API->Events_Subscribe("EV_ARCDPS_COMBATEVENT_LOCAL_RAW", OnArcEventLocal);
     API->Events_Subscribe("EV_ARCDPS_COMBATEVENT_SQUAD_RAW", OnArcEventSquad);
@@ -1032,6 +1042,8 @@ static void AddonUnload() {
     API->GUI_Deregister(RenderWindow);
     API->GUI_Deregister(RenderStrip);
     API->GUI_Deregister(RenderWidget);
+    API->GUI_Deregister(AlertsRender);
+    AlertsUnload();
     API->InputBinds_Deregister(KB_WIDGET);
     API->Events_Unsubscribe("EV_ARCDPS_COMBATEVENT_LOCAL_RAW", OnArcEventLocal);
     API->Events_Unsubscribe("EV_ARCDPS_COMBATEVENT_SQUAD_RAW", OnArcEventSquad);
@@ -1047,9 +1059,9 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 8, 1, 0 };
+    Def.Version = { 0, 9, 0, 0 };
     Def.Author = "Le Bus Magique";
-    Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Les leads mènent la soirée depuis le jeu.";
+    Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Combats en direct, et les Alertes Forge : timers de boss (format TaimiHUD), auras d'avantages, voix.";
     Def.Load = AddonLoad;
     Def.Unload = AddonUnload;
     Def.Flags = AF_None;

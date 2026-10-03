@@ -1,5 +1,6 @@
 // Forge addon for Nexus: talks to Forge (Le Bus Magique) and keeps the live night in memory for the window.
 #pragma once
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -60,6 +61,17 @@ struct WvwStats {
     int meDowns = 0, meDeaths = 0, meKills = 0;
 };
 
+// A boon watched like a WeakAura: its icon and time left, how many stacks are enough, what to do when it is missing.
+struct AuraRule {
+    uint32_t buff = 0;
+    bool on = false;
+    int show = 0;            // 0: always (dimmed when missing), 1: only while present, 2: only when missing.
+    int minStacks = 1;       // Intensity boons (might, stability): fewer counts as missing.
+    bool combatOnly = true;  // "Missing" (the red frame and the sound) only counts in combat.
+    int sound = 0;           // When it goes missing: 0 nothing, 1 the voice says its name, 2 a beep.
+};
+std::vector<AuraRule> DefaultAuras();
+
 struct Settings {
     std::string forgeUrl = "https://forge-lbm.vercel.app";
     std::string token;
@@ -82,6 +94,18 @@ struct Settings {
     float stripX = 330.0f, stripY = 30.0f, panelX = 20.0f, panelY = 60.0f;
     // The game's build seen last session: a change means a game update, which may have broken arcdps.
     uint32_t gameBuild = 0;
+    // Alertes Forge: encounter timers (.bhtimer: TaimiHUD, Hero's Timers), boon auras, voice.
+    bool timersOn = true, timersFromTaimi = true;
+    bool centerText = true, speakSounds = true, speakAlerts = true, speakWarnings = true, beepDue = false;
+    int warnAt = 3;                    // A warning is read out, and counted down in the centre, this many seconds before.
+    std::string timerVoice, auraVoice; // SAPI voice ids; empty: an English voice for the timers, Windows' own for auras.
+    int voiceVolume = 90, voiceRate = 1;
+    std::vector<std::string> timersOff; // Timer ids turned off.
+    bool alertsLocked = true;          // Unlocked: the bars and auras show a frame and can be dragged.
+    float barsX = 40.0f, barsY = 380.0f, barWidth = 300.0f, aurasX = 760.0f, aurasY = 640.0f, auraSize = 44.0f;
+    float centerY = 0.28f, centerScale = 1.5f;
+    bool aurasOn = true;
+    std::vector<AuraRule> auras = DefaultAuras();
 };
 
 // Shared between the render thread and the poller.
