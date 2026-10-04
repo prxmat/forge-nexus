@@ -1064,7 +1064,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 9, 1, 0 };
+    Def.Version = { 0, 9, 2, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Combats en direct, et les Alertes Forge : timers de boss (format TaimiHUD), auras d'avantages, voix.";
     Def.Load = AddonLoad;

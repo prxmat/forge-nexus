@@ -4,6 +4,7 @@
 #include <shellapi.h>
 
 #include <algorithm>
+#include <cctype>
 #include <atomic>
 #include <cfloat>
 #include <chrono>
@@ -180,6 +181,18 @@ std::atomic<int> SettingsVersion{ 0 };
 std::atomic<uint32_t> KeysDown{ 0 }, KeysUp{ 0 };
 std::atomic<bool> ResetRequested{ false };
 
+// Hero's Harvest Temple CM simulation is a practice tool: it starts out of combat near its spot and keeps « Begin
+// Simulation » up until trigger key 0. Off until the player turns it on.
+bool OffByDefault(const timers::TimerFile& file) {
+    std::string category = file.category;
+    std::transform(category.begin(), category.end(), category.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+    return category == "simulation" || file.id.find(".simulation.") != std::string::npos;
+}
+
+bool Has(const std::vector<std::string>& list, const std::string& id) { return std::find(list.begin(), list.end(), id) != list.end(); }
+
+bool Enabled(const Settings& st, const timers::TimerFile& file) { return OffByDefault(file) ? Has(st.timersOptIn, file.id) : !Has(st.timersOff, file.id); }
+
 void Sync(const Settings& st) {
     uint32_t map = Link ? Link->Context.MapID : 0;
     bool moved = false;
@@ -202,11 +215,10 @@ void Sync(const Settings& st) {
     Run.libraryVersion = libraryVersion;
     Run.settingsVersion = settingsVersion;
     auto lib = CurrentLibrary();
-    std::set<std::string> off(st.timersOff.begin(), st.timersOff.end());
     std::vector<std::unique_ptr<timers::Machine>> next;
     if (st.timersOn) {
         for (const auto& file : lib->files) {
-            if (file->map != map || off.count(file->id)) continue;
+            if (file->map != map || !Enabled(st, *file)) continue;
             // A machine already running this very file keeps its place in the fight.
             auto it = std::find_if(Run.machines.begin(), Run.machines.end(), [&](const auto& machine) { return machine && machine->Shared() == file; });
             if (it != Run.machines.end()) next.push_back(std::move(*it));
@@ -319,10 +331,14 @@ void SavePlace(float Settings::*x, float Settings::*y) {
     SaveSettingsLocked(SettingsFile);
 }
 
+// An alert stays in the centre 5 s at most: one that lasts (« Begin Simulation », 9999 s) goes on as a bar.
+constexpr float CENTRE_SECONDS = 5.0f;
+bool InCentre(const timers::Bar& bar) { return !bar.warning && bar.duration - bar.remaining < CENTRE_SECONDS; }
+
 // The warnings as WeakAuras bars: icon, text, a fill that drains to the moment, the seconds left. Alerts join them
-// when the centre text is off.
+// when the centre text is off, or once their time in the centre is over.
 void RenderBars(const Settings& st, std::vector<timers::Bar> bars, double now) {
-    bars.erase(std::remove_if(bars.begin(), bars.end(), [&](const timers::Bar& bar) { return !bar.warning && st.centerText; }), bars.end());
+    bars.erase(std::remove_if(bars.begin(), bars.end(), [&](const timers::Bar& bar) { return st.centerText && InCentre(bar); }), bars.end());
     std::stable_sort(bars.begin(), bars.end(), [](const timers::Bar& a, const timers::Bar& b) { return a.remaining < b.remaining; });
     bool placing = !st.alertsLocked;
     if (bars.empty() && Toasts.empty() && !placing) return;
@@ -380,7 +396,7 @@ void RenderCentre(const Settings& st, const std::vector<timers::Bar>& bars, doub
         for (const auto& line : lines) if (line.text == text) return;
         if (lines.size() < 4) lines.push_back({ text, colour });
     };
-    for (const auto& bar : bars) if (!bar.warning) add(bar.text, Rgb(bar.colour, ImGui::GetColorU32(GOLD), std::min(1.0f, bar.remaining / 0.4f)));
+    for (const auto& bar : bars) if (InCentre(bar)) add(bar.text, Rgb(bar.colour, ImGui::GetColorU32(GOLD), std::min({ 1.0f, bar.remaining / 0.4f, (CENTRE_SECONDS - (bar.duration - bar.remaining)) / 0.4f })));
     if (st.warnAt > 0) {
         for (const auto& bar : bars) {
             if (!bar.warning || bar.remaining > st.warnAt) continue;
@@ -771,18 +787,20 @@ void AlertsTab() {
         for (const auto& [category, files] : byCategory) {
             if (!ImGui::TreeNode((category + " (" + std::to_string(files.size()) + ")###" + category).c_str())) continue;
             for (const auto& file : files) {
-                bool on = std::find(st.timersOff.begin(), st.timersOff.end(), file->id) == st.timersOff.end();
+                bool on = Enabled(st, *file);
                 std::string label = file->Area() + " · " + file->Title() + "##" + file->id;
                 if (ImGui::Checkbox(label.c_str(), &on)) {
-                    if (on) st.timersOff.erase(std::remove(st.timersOff.begin(), st.timersOff.end(), file->id), st.timersOff.end());
-                    else st.timersOff.push_back(file->id);
+                    std::vector<std::string>& list = OffByDefault(*file) ? st.timersOptIn : st.timersOff;
+                    bool listed = OffByDefault(*file) ? on : !on;
+                    list.erase(std::remove(list.begin(), list.end(), file->id), list.end());
+                    if (listed) list.push_back(file->id);
                     changed = true;
                     machinesChanged = true;
                 }
                 if (ImGui::IsItemHovered()) {
                     std::string keys;
                     for (int key : file->keys) keys += (keys.empty() ? "" : ", ") + std::to_string(key);
-                    std::string tip = file->description + "\n\n" + file->source + (keys.empty() ? "" : " · touches " + keys) + " · carte " + std::to_string(file->map);
+                    std::string tip = file->description + "\n\n" + file->source + (keys.empty() ? "" : " · touches " + keys) + " · carte " + std::to_string(file->map) + (OffByDefault(*file) ? "\nEntraînement hors combat : désactivé tant que tu ne le coches pas." : "");
                     ImGui::SetTooltip("%s", tip.c_str());
                 }
             }

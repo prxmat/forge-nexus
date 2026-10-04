@@ -171,6 +171,8 @@ void LoadSettings(const std::string& path) {
         s.voiceRate = data.value("voice_rate", 1);
         s.timersOff.clear();
         if (data.contains("timers_off") && data["timers_off"].is_array()) for (const auto& id : data["timers_off"]) if (id.is_string()) s.timersOff.push_back(id.get<std::string>());
+        s.timersOptIn.clear();
+        if (data.contains("timers_opt_in") && data["timers_opt_in"].is_array()) for (const auto& id : data["timers_opt_in"]) if (id.is_string()) s.timersOptIn.push_back(id.get<std::string>());
         s.alertsLocked = data.value("alerts_locked", true);
         s.barsX = data.value("bars_x", 40.0f);
         s.barsY = data.value("bars_y", 380.0f);
@@ -259,6 +261,7 @@ void SaveSettingsLocked(const std::string& path) {
         data["voice_volume"] = s.voiceVolume;
         data["voice_rate"] = s.voiceRate;
         data["timers_off"] = s.timersOff;
+        data["timers_opt_in"] = s.timersOptIn;
         data["alerts_locked"] = s.alertsLocked;
         data["bars_x"] = s.barsX;
         data["bars_y"] = s.barsY;

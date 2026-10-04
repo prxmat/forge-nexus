@@ -100,7 +100,8 @@ struct Settings {
     int warnAt = 3;                    // A warning is read out, and counted down in the centre, this many seconds before.
     std::string timerVoice, auraVoice; // SAPI voice ids; empty: an English voice for the timers, Windows' own for auras.
     int voiceVolume = 90, voiceRate = 1;
-    std::vector<std::string> timersOff; // Timer ids turned off.
+    std::vector<std::string> timersOff;   // Timer ids turned off.
+    std::vector<std::string> timersOptIn; // Timers off by default (practice simulations) the player turned on.
     bool alertsLocked = true;          // Unlocked: the bars and auras show a frame and can be dragged.
     float barsX = 40.0f, barsY = 380.0f, barWidth = 300.0f, aurasX = 760.0f, aurasY = 640.0f, auraSize = 44.0f;
     float centerY = 0.28f, centerScale = 1.5f;
