@@ -25,6 +25,7 @@ struct Tracked {
 std::mutex mutex;
 std::unordered_map<uint32_t, Tracked> buffs;
 bool everBuff = false;
+uint32_t playerEvents = 0, unknownRemoves = 0;
 std::vector<uint64_t> recent(256, 0);
 size_t recentAt = 0;
 
@@ -59,13 +60,14 @@ void Apply(uint32_t buff, uint32_t stackId, int32_t value, uint32_t overstack, b
     }
 }
 
-void Change(uint32_t buff, uint32_t stackId, int32_t difference, uint32_t newDuration, uint64_t now) {
+// BUFFCHANGE: the stack's time moves by `difference` ms.
+void Change(uint32_t buff, uint32_t stackId, int32_t difference, uint64_t now) {
     auto found = buffs.find(buff);
     if (found == buffs.end()) return;
     Tracked& t = found->second;
     if (AuraIntensity(buff)) {
         auto it = t.stacks.find(stackId);
-        if (it != t.stacks.end()) it->second = now + newDuration;
+        if (it != t.stacks.end()) it->second = (uint64_t)std::max<int64_t>((int64_t)now, (int64_t)it->second + difference);
     } else if (t.queueEnd > now) {
         int64_t end = (int64_t)t.queueEnd + difference;
         t.queueEnd = (uint64_t)std::max<int64_t>((int64_t)now, end);
@@ -78,14 +80,23 @@ void RemoveOne(uint32_t buff, uint32_t stackId, int32_t removedMs, uint64_t now)
     Tracked& t = found->second;
     if (AuraIntensity(buff)) {
         Prune(t, now);
-        auto it = stackId ? t.stacks.find(stackId) : t.stacks.end();
-        if (it == t.stacks.end() && !t.stacks.empty()) {
-            // No id: the stack whose time left is closest to what was removed.
-            it = std::min_element(t.stacks.begin(), t.stacks.end(), [&](const auto& a, const auto& b) {
-                return std::llabs((long long)(a.second - now) - removedMs) < std::llabs((long long)(b.second - now) - removedMs);
-            });
+        if (stackId) {
+            // arcdps names the stack. Not here any more: it ran out on our clock a few ms before the game's remove
+            // came, or the cap pushed it out. Taking another one instead would drop a stack the player still has.
+            auto it = t.stacks.find(stackId);
+            if (it != t.stacks.end()) t.stacks.erase(it);
+            else unknownRemoves++;
+            return;
         }
-        if (it != t.stacks.end()) t.stacks.erase(it);
+        // Older arcdps, no id: only a stack whose time left matches what was removed.
+        auto best = t.stacks.end();
+        long long gap = 0;
+        for (auto it = t.stacks.begin(); it != t.stacks.end(); ++it) {
+            long long distance = std::llabs((long long)(it->second - now) - removedMs);
+            if (best == t.stacks.end() || distance < gap) { best = it; gap = distance; }
+        }
+        if (best != t.stacks.end() && gap <= 250) t.stacks.erase(best);
+        else unknownRemoves++;
     } else if (t.queueEnd > now) {
         t.queueEnd = removedMs > 0 && t.queueEnd - now > (uint64_t)removedMs ? t.queueEnd - removedMs : now;
     }
@@ -130,13 +141,14 @@ void AurasOnEvent(void* payload) {
         recent[recentAt++ % recent.size()] = p->id;
     }
     everBuff = true;
+    playerEvents++;
     uint64_t now = GetTickCount64();
     const uint32_t buff = ev->skillId;
     const bool modern = ev->isStateChange != 0;
     switch (kind) {
     case Kind::Apply: Apply(buff, modern ? ev->pad : 0, ev->value, modern ? 0 : ev->overstackValue, false, now); break;
     case Kind::Initial: Apply(buff, ev->pad, ev->value, 0, true, now); break;
-    case Kind::Change: Change(buff, ev->pad, ev->value, ev->overstackValue, now); break;
+    case Kind::Change: Change(buff, ev->pad, ev->value, now); break;
     case Kind::RemoveOne: RemoveOne(buff, modern ? ev->pad : 0, ev->value, now); break;
     case Kind::RemoveAll: RemoveAll(buff); break;
     case Kind::None: break;
@@ -167,6 +179,11 @@ std::map<uint32_t, BoonState> AurasSnapshot() {
 bool AurasEverBuff() {
     std::lock_guard<std::mutex> lock(mutex);
     return everBuff;
+}
+
+AuraCounts AurasCounts() {
+    std::lock_guard<std::mutex> lock(mutex);
+    return { playerEvents, unknownRemoves };
 }
 
 void AurasClear() {

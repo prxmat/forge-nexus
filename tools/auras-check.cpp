@@ -1,7 +1,11 @@
 // Native check of the boon tracking (src/auras.cpp) with made-up arcdps events, old and 2025 formats. From the root:
 //   clang++ -std=c++17 -Itools/stub -Isrc tools/auras-check.cpp src/auras.cpp -o build/native/auras-check && build/native/auras-check
+#include <algorithm>
 #include <cstdio>
+#include <cstdint>
+#include <cstdlib>
 #include <string>
+#include <vector>
 
 #include "arcevents.h"
 #include "auras.h"
@@ -89,6 +93,50 @@ int main() {
     Send(18, 717, 4000, &ally, &me, 900);
     Expect(AurasSnapshot()[717].remainingMs == 4000, "buff initial does not double a known stack");
     Expect(AurasEverBuff(), "buff events seen");
+    // Might kept up for a minute, first just under the cap (stacks run out on their own), then at 25 (each new stack
+    // pushes out the shortest). The game's remove for a stack that ran out arrives 60 ms after its end, when the
+    // tracker already let it go: that must not cost a live stack. The panel must show what the game has.
+    for (int period : { 420, 400 }) {
+        AurasClear();
+        struct GameStack { uint32_t id; uint64_t end; bool told = false; };
+        std::vector<GameStack> game;
+        uint32_t id = 5000 + period * 1000;
+        int lowest = 25, off = 0;
+        uint64_t start = g_fakeTicks;
+        for (uint64_t t = 0; t <= 60000; t += 10) {
+            g_fakeTicks = start + t;
+            for (auto& stack : game) if (!stack.told && g_fakeTicks >= stack.end + 60) { Send(71, 740, 0, &me, &me, stack.id, 2); stack.told = true; }
+            game.erase(std::remove_if(game.begin(), game.end(), [](const GameStack& stack) { return stack.told; }), game.end());
+            if (t % period == 0) {
+                int live = 0;
+                for (const auto& stack : game) if (stack.end > g_fakeTicks) live++;
+                if (live >= 25) {
+                    auto shortest = std::min_element(game.begin(), game.end(), [&](const GameStack& a, const GameStack& b) { return (a.end > g_fakeTicks ? a.end : UINT64_MAX) < (b.end > g_fakeTicks ? b.end : UINT64_MAX); });
+                    Send(71, 740, (int32_t)(shortest->end - g_fakeTicks), &me, &me, shortest->id, 2);
+                    game.erase(shortest);
+                }
+                game.push_back({ ++id, g_fakeTicks + 10000 });
+                Send(69, 740, 10000, &me, &me, id);
+            }
+            int live = 0;
+            for (const auto& stack : game) if (stack.end > g_fakeTicks) live++;
+            int shown = AurasSnapshot()[740].stacks;
+            if (t > 12000) { lowest = std::min(lowest, shown); if (shown != live) off++; }
+        }
+        Expect(off == 0, "might every " + std::to_string(period) + " ms: the panel shows the game's stacks (lowest " + std::to_string(lowest) + ", " + std::to_string(off) + " checks off)");
+    }
+    // A remove naming a stack the tracker does not have touches nothing.
+    {
+        AurasClear();
+        for (uint32_t i = 0; i < 5; i++) Send(69, 740, 8000, &ally, &me, 7000 + i);
+        Send(71, 740, 4000, &me, &ally, 9999, 2);
+        Expect(AurasSnapshot()[740].stacks == 5, "a remove for an unknown stack id removes nothing");
+        // Old format, no id: only a stack whose time left matches what was removed goes.
+        Send(0, 740, 3000, &me, &ally, 0, 2, 1);
+        Expect(AurasSnapshot()[740].stacks == 5, "old format: a remove matching no stack's time left removes nothing");
+        Send(0, 740, 8000, &me, &ally, 0, 2, 1);
+        Expect(AurasSnapshot()[740].stacks == 4, "old format: a remove matching a stack's time left removes it");
+    }
     AurasClear();
     Expect(AurasSnapshot().empty(), "map change clears");
     std::printf(failures ? "%d FAILED\n" : "all good\n", failures);

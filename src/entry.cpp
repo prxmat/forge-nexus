@@ -653,6 +653,9 @@ static void PanelMenu(Settings& st) {
         ImGui::EndMenu();
     }
     ImGui::Separator();
+    if (ImGui::MenuItem("Fenêtre Forge", nullptr, WindowVisible)) WindowVisible = !WindowVisible;
+    bool placing = !st.alertsLocked;
+    if (ImGui::MenuItem("Déplacer les barres et les auras", nullptr, &placing)) { st.alertsLocked = !placing; changed = true; }
     if (ImGui::MenuItem("Fermer le panneau")) { st.showWidget = false; changed = true; }
     if (changed) SaveSettingsLocked(SettingsPath);
     ImGui::EndPopup();
@@ -1019,7 +1022,9 @@ static void AddonLoad(AddonAPI_t* api) {
     API->InputBinds_RegisterWithString(KB_WIDGET, ToggleWidget, "(null)");
     MumbleLink = (Mumble::Data*)API->DataLink_Get(DL_MUMBLE_LINK);
     API->Localization_Set(KB_TOGGLE, "fr", "Forge : ouvrir la fenêtre");
+    API->Localization_Set(KB_TOGGLE, "en", "Forge: open the window");
     API->Localization_Set(KB_WIDGET, "fr", "Forge : panneau du combat");
+    API->Localization_Set(KB_WIDGET, "en", "Forge: fight panel");
     AlertsLoad(API, NexusLink, MumbleLink, SettingsPath);
     API->GUI_Register(RT_Render, AlertsRender);
     // Nexus forwards arcdps' combat events to subscribers: a heartbeat that says arcdps still works.
@@ -1059,7 +1064,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 9, 0, 0 };
+    Def.Version = { 0, 9, 1, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Combats en direct, et les Alertes Forge : timers de boss (format TaimiHUD), auras d'avantages, voix.";
     Def.Load = AddonLoad;

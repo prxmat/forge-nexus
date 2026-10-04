@@ -727,6 +727,9 @@ void AlertsTab() {
             ImGui::PushTextWrapPos(0.0f);
             ImGui::TextColored(MUTED, "%s", "Aucun avantage reçu d'arcdps pour l'instant : les auras s'animent dès qu'arcdps signale tes avantages (arcdps à jour, intégration Nexus active).");
             ImGui::PopTextWrapPos();
+        } else {
+            AuraCounts counts = AurasCounts();
+            ImGui::TextColored(MUTED, "arcdps : %u événements sur tes avantages, %u retraits de piles déjà expirées ignorés", counts.events, counts.unknownRemoves);
         }
         if (ImGui::BeginTable("forge-auras", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
             ImGui::TableSetupColumn("Avantage", ImGuiTableColumnFlags_WidthStretch, 2.2f);

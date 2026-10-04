@@ -31,7 +31,7 @@ Des timers de boss, des auras d’avantages et une voix, dessinés par-dessus le
 - **Voix** (synthèse vocale de Windows) : les annonces du timer, ses alertes, ses avertissements N secondes avant (3 par défaut), une voix anglaise pour les textes anglais des packs ; bip à l’échéance en option.
 - **Touches de timer** : les timers « Hotkey » de Hero’s Timers (Deimos, Dhuum Shackles, Temple de Febe, Ura…) attendent la « Trigger Key 0 à 4 » : à assigner dans Nexus → Raccourcis (« Forge · Alertes : touche de timer 0 à 4 », et « réarmer les timers »).
 - **Auras** : tes avantages (célérité, alacrité, pouvoir, stabilité… treize au choix) en icônes, durée en balayage et en secondes, stacks dans le coin ; cadre rouge qui pulse et voix ou bip quand l’un manque en combat (après 1,5 s, au plus toutes les 6 s). Minimum de stacks pour le pouvoir et la stabilité. Elles viennent des événements d’avantages d’arcdps en temps réel.
-- « Déplacer les barres et les auras » pour les placer ; « Tester l’affichage et la voix » pour voir le rendu sans être en combat.
+- « Déplacer les barres et les auras » pour les placer (onglet Alertes, ou clic droit sur le panneau du combat, qui ouvre aussi la fenêtre Forge) ; « Tester l’affichage et la voix » pour voir le rendu sans être en combat.
 
 ## Construire
 

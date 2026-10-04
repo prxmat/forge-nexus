@@ -17,6 +17,9 @@ void AurasOnEvent(void* payload);
 std::map<uint32_t, BoonState> AurasSnapshot();
 // A buff event about the player arrived since the addon loaded.
 bool AurasEverBuff();
+// What arcdps sent about the player's boons since load, and the removes that named a stack no longer followed.
+struct AuraCounts { uint32_t events = 0, unknownRemoves = 0; };
+AuraCounts AurasCounts();
 // A map change: the game clears boons without telling arcdps.
 void AurasClear();
 bool AuraIntensity(uint32_t buff);
