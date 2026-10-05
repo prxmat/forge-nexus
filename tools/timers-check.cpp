@@ -1,6 +1,6 @@
 // Native check of the timers engine against a timer pack (Hero's Timers): every file must load, and three fights
 // are played through the machine. Build from the repository root:
-//   clang++ -std=c++17 -Isrc tools/timers-check.cpp src/timers.cpp -o build/native/timers-check
+//   clang++ -std=c++17 -Isrc tools/timers-check.cpp src/timers.cpp src/text.cpp -o build/native/timers-check
 //   build/native/timers-check /path/to/pack
 #include <cmath>
 #include <cstdio>

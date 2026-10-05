@@ -67,7 +67,7 @@ void Loop() {
         { std::lock_guard<std::mutex> lock(g_fights.mutex); dir = g_fights.logsDir; }
         if (GetFileAttributesW(dir.c_str()) == INVALID_FILE_ATTRIBUTES) {
             std::lock_guard<std::mutex> lock(g_fights.mutex);
-            g_fights.status = "Dossier des logs introuvable (Options → Forge).";
+            g_fights.status = "Dossier des logs introuvable (Options > Forge).";
         } else {
             std::unordered_map<std::wstring, uint64_t> found;
             Walk(dir, since, found);
@@ -100,7 +100,7 @@ void Loop() {
                 if (!fight.ok) ReportError("Log illisible : " + fight.error, "{\"file\":\"" + fight.file + "\"}");
                 else if (fight.wvw && fight.teams.empty() && fight.eventsRead) ReportError("Log McM sans équipe", "{\"file\":\"" + fight.file + "\",\"agents\":" + std::to_string(fight.agentsRead) + ",\"players\":" + std::to_string(fight.playersRead) + ",\"withTeam\":" + std::to_string(fight.playersWithTeam) + ",\"colours\":" + std::to_string(fight.coloursKnown) + "}");
             }
-            if (g_fights.status.empty()) { std::lock_guard<std::mutex> lock(g_fights.mutex); g_fights.status = "En attente du prochain combat…"; }
+            if (g_fights.status.empty()) { std::lock_guard<std::mutex> lock(g_fights.mutex); g_fights.status = "En attente du prochain combat..."; }
         }
         for (int i = 0; i < SCAN_MS / 100 && running; i++) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }

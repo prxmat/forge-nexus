@@ -10,6 +10,7 @@
 
 #include "json.hpp"
 #include "boons.h"
+#include "text.h"
 
 using json = nlohmann::json;
 
@@ -352,6 +353,8 @@ bool PollNight() {
     // Forge keeps the state of arcdps per member, so Bienvenue can say when it is missing or outdated.
     std::string query = std::string("?arcdps=") + ArcdpsCode(ArcdpsVerdict()) + (settings.rosterId.empty() ? "" : "&roster=" + settings.rosterId);
     int status = HttpGet(settings.forgeUrl + "/api/live/night" + query, settings.token, body);
+    // Forge's guides are typographic French (’ – … œ): the window's font only has Latin-1.
+    body = ForFont(body);
     std::lock_guard<std::mutex> lock(g_state.mutex);
     if (status == 401) { g_state.status = "Token Forge inconnu ou révoqué."; g_state.tokenOk = false; g_state.hasNight = false; return false; }
     if (status != 200) {
@@ -399,6 +402,7 @@ void PollStats() {
     if (settings.token.empty()) return;
     std::string body;
     if (HttpGet(settings.forgeUrl + "/api/live/stats", settings.token, body) != 200) return;
+    body = ForFont(body);
     try {
         json data = json::parse(body);
         PveStats pve; WvwStats wvw;
@@ -458,6 +462,7 @@ void StartWvwEvening() {
     { std::lock_guard<std::mutex> lock(g_state.mutex); if (g_state.busy) return; g_state.busy = true; g_state.error.clear(); settings = g_state.settings; }
     std::string out;
     int status = HttpPostJson(settings.forgeUrl + "/api/live/session", settings.token, "{}", out);
+    out = ForFont(out);
     if (status != 200) {
         std::string message = "Forge a refusé (" + std::to_string(status) + ").";
         try { json data = json::parse(out); message = data.value("error", message); } catch (...) {}
@@ -484,6 +489,7 @@ void SendOp(const std::string& op, const std::string& bossId) {
     if (!bossId.empty()) body["bossId"] = bossId;
     std::string out;
     int status = HttpPostJson(settings.forgeUrl + "/api/live/op", settings.token, body.dump(), out);
+    out = ForFont(out);
     if (status != 200) {
         std::string message = "Forge a refusé (" + std::to_string(status) + ").";
         try { json data = json::parse(out); message = data.value("error", message); } catch (...) {}

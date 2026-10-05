@@ -169,7 +169,7 @@ void DownloadHero() {
     Downloader = std::thread([target]() {
         auto finish = [](const std::string& status) { SetDownloadStatus(status); Downloading = false; };
         if (target.empty()) return finish("Dossier de Forge introuvable.");
-        SetDownloadStatus("Téléchargement de Hero's Timers…");
+        SetDownloadStatus("Téléchargement de Hero's Timers...");
         int found = 0;
         std::string failure = UnpackZip(HERO_URL, fs::path(target), "Hero-Timers", { ".bhtimer" }, found);
         if (!failure.empty()) return finish(failure);
@@ -198,7 +198,7 @@ void InstallWeakAurasSounds() {
     if (SoundsDownloader.joinable()) SoundsDownloader.join();
     fs::path root = fs::path(SoundsDir) / "WeakAuras";
     SoundsDownloader = std::thread([root]() {
-        SetSoundsStatus("Téléchargement des sons WeakAuras…");
+        SetSoundsStatus("Téléchargement des sons WeakAuras...");
         int found = 0;
         std::string failure = UnpackZip(WEAKAURAS_SOUNDS_URL, root, "WeakAuras", { ".ogg", ".wav" }, found);
         SetSoundsStatus(!failure.empty() ? failure : found ? "Sons WeakAuras installés : " + std::to_string(found) + "." : "Aucun son dans l'archive.");
@@ -809,10 +809,10 @@ void AlertsTab() {
     ImGui::SameLine();
     ImGui::TextColored(MUTED, "· format Blish HUD / TaimiHUD (.bhtimer), comme Hero's Timers");
     if (lib->loaded) ImGui::TextColored(MUTED, "%d timers chargés (Forge : %d, TaimiHUD : %d) · carte %u : %d ici", (int)lib->files.size(), lib->fromForge, lib->fromTaimi, Run.map, (int)Run.machines.size());
-    else ImGui::TextColored(MUTED, "%s", "Lecture des timers…");
+    else ImGui::TextColored(MUTED, "%s", "Lecture des timers...");
     if (lib->loaded && lib->files.empty()) {
         ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextColored(GOLD, "%s", "Aucun timer trouvé. Hero's Timers (QuitarHero) couvre les raids, strikes et donjons : champignons de Slothasor, verts de Dhuum, huiles de Deimos…");
+        ImGui::TextColored(GOLD, "%s", "Aucun timer trouvé. Hero's Timers (QuitarHero) couvre les raids, strikes et donjons : champignons de Slothasor, verts de Dhuum, huiles de Deimos...");
         ImGui::PopTextWrapPos();
     }
     if (Downloading) ImGui::TextColored(MUTED, "%s", GetDownloadStatus().c_str());
@@ -851,7 +851,7 @@ void AlertsTab() {
         ImGui::SameLine();
         if (ImGui::SmallButton(std::to_string(key).c_str())) { KeysDown.fetch_or(1u << key); KeysUp.fetch_or(1u << key); }
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Les « Trigger Key 0 à 4 » des timers. À assigner dans Nexus → Raccourcis : Forge · Alertes : touche de timer 0 à 4.");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Les « Trigger Key 0 à 4 » des timers. À assigner dans Nexus > Raccourcis : Forge · Alertes : touche de timer 0 à 4.");
     if (ImGui::Button("Tester l'affichage, la voix et les sons")) {
         DemoStart = now;
         DemoUntil = now + 12.0;
@@ -882,7 +882,7 @@ void AlertsTab() {
         ImGui::TextColored(GOLD, "%s", "Sons avant le moment, comme WeakAuras");
         std::vector<std::string> files = SoundFiles();
         changed |= SoundCombo("Compte à rebours", st.countdownSound, files, false, st.soundVolume);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Joué à chacune des dernières secondes d'un avertissement : wuh, wuh, wuh… puis le son du moment.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Joué à chacune des dernières secondes d'un avertissement : wuh, wuh, wuh... puis le son du moment.");
         changed |= ImGui::SliderInt("Dernières secondes", &st.countdownFrom, 0, 10, "%d s");
         changed |= ImGui::SliderInt("Un son toutes les", &st.countdownEvery, 1, 3, "%d s");
         changed |= SoundCombo("Au moment", st.dueSound, files, false, st.soundVolume);
@@ -945,7 +945,7 @@ void AlertsTab() {
                 changed |= ImGui::Combo(("##show" + id).c_str(), &rule.show, "Toujours\0Présente\0Absente\0");
                 ImGui::TableSetColumnIndex(2);
                 if (boon->intensity) { ImGui::SetNextItemWidth(-1); changed |= ImGui::SliderInt(("##min" + id).c_str(), &rule.minStacks, 1, 25, "%d stacks"); }
-                else ImGui::TextColored(MUTED, "%s", "—");
+                else ImGui::TextColored(MUTED, "%s", "-");
                 ImGui::TableSetColumnIndex(3);
                 changed |= ImGui::Checkbox(("##combat" + id).c_str(), &rule.combatOnly);
                 ImGui::TableSetColumnIndex(4);

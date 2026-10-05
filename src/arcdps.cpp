@@ -124,7 +124,7 @@ std::string ArcdpsText(ArcVerdict verdict) {
     std::string version;
     { std::lock_guard<std::mutex> lock(g_arcdps.mutex); version = g_arcdps.remoteVersion; }
     switch (verdict) {
-    case ArcVerdict::Unknown: return "Vérification d'arcdps…";
+    case ArcVerdict::Unknown: return "Vérification d'arcdps...";
     case ArcVerdict::Absent: return "arcdps introuvable dans le jeu : aucun log ne sera écrit, ni pour l'addon ni pour Forge.";
     case ArcVerdict::Outdated: return "Mise à jour arcdps disponible (" + version + "). Sans elle, les logs peuvent s'arrêter à la prochaine mise à jour du jeu.";
     case ArcVerdict::GameUpdated: return "Le jeu a été mis à jour, arcdps pas encore chez toi (" + version + " disponible) : les logs peuvent manquer cette sortie.";

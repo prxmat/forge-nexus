@@ -38,7 +38,7 @@ Des timers de boss, des auras d’avantages et une voix, dessinés par-dessus le
 
 MinGW-w64 (`brew install mingw-w64` ou `apt install mingw-w64`) puis `./build.sh` → `build/forge.dll`. ImGui 1.80 (celui de Nexus), `Nexus.h` et `Mumble.h` de Raidcore, `nlohmann/json`, `miniz` : tout est dans `src/`.
 
-Vérifications natives (clang, sans Windows) : `tools/timers-check.cpp` charge un pack de timers et joue Slothasor, les huiles de Deimos et un `skipTime` ; `tools/auras-check.cpp` rejoue des événements d’avantages arcdps (format 2025 et ancien) ; `tools/tones-check.cpp` vérifie les sons synthétisés (écrits en `.wav` dans `build/native/tones`) et décode les sons WeakAuras ; `tools/pack-sounds.sh` refait `sounds/weakauras.zip`. Les lignes de compilation sont en tête de chaque fichier.
+Vérifications natives (clang, sans Windows) : `tools/timers-check.cpp` charge un pack de timers et joue Slothasor, les huiles de Deimos et un `skipTime` ; `tools/auras-check.cpp` rejoue des événements d’avantages arcdps (format 2025 et ancien) ; `tools/tones-check.cpp` vérifie les sons synthétisés (écrits en `.wav` dans `build/native/tones`) et décode les sons WeakAuras ; `tools/pack-sounds.sh` refait `sounds/weakauras.zip` ; `tools/text-check.cpp` vérifie que tout texte affiché reste dans la police de Nexus (Latin-1 : ’ – … œ → ' - ... oe). Les lignes de compilation sont en tête de chaque fichier.
 
 ## Crédits
 

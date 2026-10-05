@@ -13,7 +13,7 @@ $CC -O2 -c -DSTB_VORBIS_NO_STDIO -o build/stb_vorbis.o src/thirdparty/stb_vorbis
 $CXX -std=c++17 -O2 -s -shared -static -static-libgcc -static-libstdc++ -DNOMINMAX -DWIN32_LEAN_AND_MEAN -DUNICODE -D_UNICODE -DMINIZ_NO_STDIO -DMINIZ_NO_TIME -DMINIZ_NO_ARCHIVE_WRITING_APIS \
   -Isrc -Isrc/imgui \
   -o build/forge.dll \
-  src/entry.cpp src/forge.cpp src/arcdps.cpp src/live.cpp src/evtc.cpp src/fights.cpp src/timers.cpp src/tones.cpp src/soundfile.cpp src/speech.cpp src/auras.cpp src/alerts.cpp src/imgui/imgui.cpp src/imgui/imgui_draw.cpp src/imgui/imgui_tables.cpp src/imgui/imgui_widgets.cpp \
+  src/entry.cpp src/forge.cpp src/arcdps.cpp src/live.cpp src/evtc.cpp src/fights.cpp src/timers.cpp src/text.cpp src/tones.cpp src/soundfile.cpp src/speech.cpp src/auras.cpp src/alerts.cpp src/imgui/imgui.cpp src/imgui/imgui_draw.cpp src/imgui/imgui_tables.cpp src/imgui/imgui_widgets.cpp \
   build/miniz.o build/miniz_tdef.o build/miniz_tinfl.o build/miniz_zip.o build/stb_vorbis.o \
   -lwinhttp -lshell32 -lole32 -luuid -lpsapi -ladvapi32 -lsapi -lwinmm -Wl,--subsystem,windows
 ls -la build/forge.dll

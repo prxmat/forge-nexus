@@ -146,6 +146,13 @@ static void LeadButton(const char* label, const char* op, const std::string& bos
     if (ImGui::Button(label)) { std::string o = op, b = bossId; std::thread([o, b]() { SendOp(o, b); }).detach(); }
 }
 
+// Deaths and downs in words (the font has no ✝ nor ↓): "2 morts, 1 à terre".
+static std::string Fallen(int deaths, int downs) {
+    std::string text;
+    if (deaths) text += std::to_string(deaths) + (deaths > 1 ? " morts" : " mort");
+    if (downs) text += (text.empty() ? "" : ", ") + std::to_string(downs) + " à terre";
+    return text;
+}
 static std::string Clock(int ms) { int s = ms / 1000; char buf[16]; snprintf(buf, sizeof(buf), "%d:%02d", s / 60, s % 60); return buf; }
 static std::string Thousands(double value) { char buf[32]; if (value >= 1000000) snprintf(buf, sizeof(buf), "%.2f M", value / 1000000); else if (value >= 1000) snprintf(buf, sizeof(buf), "%.0f k", value / 1000); else snprintf(buf, sizeof(buf), "%.0f", value); return buf; }
 
@@ -253,7 +260,7 @@ static void RenderStats() {
     ArcdpsLine(false);
     if (!g_state.hasPve && !g_state.hasWvw) {
         Callout(MUTED, "Rien encore ce soir : les chiffres de Forge arrivent 20 à 40 s après chaque log envoyé par Forge Uploader. L'onglet Combats, lui, lit les logs tout de suite.");
-        if (g_state.busy) ImGui::TextColored(MUTED, "%s", "Nouvelle sortie McM…");
+        if (g_state.busy) ImGui::TextColored(MUTED, "%s", "Nouvelle sortie McM...");
         else if (ImGui::SmallButton("Nouvelle sortie McM")) std::thread([]() { StartWvwEvening(); }).detach();
         return;
     }
@@ -265,7 +272,7 @@ static void RenderStats() {
         else ImGui::TextColored(RED, "  wipe à %.1f %% · %s", p.hpLeft, Clock(p.durationMs).c_str());
         ImGui::Spacing();
         std::vector<Kpi> tiles;
-        tiles.push_back({ p.dps >= 0 ? Thousands(p.dps) : "—", "DPS cible", p.rank ? std::to_string(p.rank) + "e sur " + std::to_string(p.squad) : "", SKY });
+        tiles.push_back({ p.dps >= 0 ? Thousands(p.dps) : "-", "DPS cible", p.rank ? std::to_string(p.rank) + "e sur " + std::to_string(p.squad) : "", SKY });
         tiles.push_back({ std::to_string(p.deaths), "Morts", std::to_string(p.downs) + " à terre", p.deaths ? RED : GREEN });
         tiles.push_back({ std::to_string(p.nightKills) + "/" + std::to_string(p.nightPlayed), "Kills ce soir", std::to_string(p.nightDeaths) + " mort(s) au total", GOLD });
         KpiRow(tiles);
@@ -281,7 +288,7 @@ static void RenderStats() {
         const WvwStats& w = g_state.wvw;
         if (g_state.hasPve) { ImGui::Separator(); ImGui::Spacing(); }
         SectionTitle("McM · Forge", w.title);
-        if (g_state.busy) ImGui::TextColored(MUTED, "%s", "Nouvelle sortie McM…");
+        if (g_state.busy) ImGui::TextColored(MUTED, "%s", "Nouvelle sortie McM...");
         else if (ImGui::SmallButton("Nouvelle sortie McM")) std::thread([]() { StartWvwEvening(); }).detach();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Les combats envoyés à partir de maintenant vont dans une nouvelle sortie (Forge en ouvre aussi une après 2 h sans combat).");
         if (!g_state.error.empty()) ImGui::TextColored(RED, "%s", g_state.error.c_str());
@@ -317,7 +324,7 @@ static void RenderStats() {
             float width = ImGui::GetContentRegionAvail().x;
             int shown = 0;
             for (const auto& pl : w.lastPlayers) {
-                if (shown++ >= 15) { ImGui::TextColored(MUTED, "… et %d autres", (int)w.lastPlayers.size() - 15); break; }
+                if (shown++ >= 15) { ImGui::TextColored(MUTED, "... et %d autres", (int)w.lastPlayers.size() - 15); break; }
                 bool me = w.hasLastMe && pl.account == w.lastMe.account;
                 ImVec2 pos = ImGui::GetCursorScreenPos();
                 float height = ImGui::GetTextLineHeight() + 6.0f;
@@ -331,7 +338,7 @@ static void RenderStats() {
                 ImGui::TextColored(me ? SKY : ImVec4(0.93f, 0.94f, 0.95f, 1.0f), "%s", pl.name.c_str());
                 ImGui::SameLine(0, 8); ImGui::TextColored(MUTED, "%s (%s /s)", Thousands(pl.damage).c_str(), Thousands(pl.dps).c_str());
                 if (pl.kills) { ImGui::SameLine(0, 8); ImGui::TextColored(GREEN, "%d kills", pl.kills); }
-                if (pl.deaths || pl.downs) { ImGui::SameLine(0, 8); ImGui::TextColored(RED, "%d✝ %d↓", pl.deaths, pl.downs); }
+                if (pl.deaths || pl.downs) { ImGui::SameLine(0, 8); ImGui::TextColored(RED, "%s", Fallen(pl.deaths, pl.downs).c_str()); }
                 if (pl.stability > 0) { ImGui::SameLine(0, 8); ImGui::TextColored(GOLD, "stab %.1f", pl.stability); }
                 if (pl.dist >= 0) { ImGui::SameLine(0, 8); ImGui::TextColored(pl.dist <= 600 ? MUTED : RED, "%.0f du tag", pl.dist); }
                 ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + height + 3.0f));
@@ -400,7 +407,7 @@ static void SpecRow(const SpecCount& sc, uint64_t maxDamage, int maxCount, bool 
     ImGui::TextUnformatted(shortNames ? SpecShort(sc.spec).c_str() : sc.spec.c_str());
     ImGui::SameLine(0, 8);
     ImGui::TextColored(MUTED, "(%s)", Thousands((double)sc.damage).c_str());
-    if (sc.deaths || sc.downs) { ImGui::SameLine(0, 8); ImGui::TextColored(RED, "%d✝ %d↓", sc.deaths, sc.downs); }
+    if (sc.deaths || sc.downs) { ImGui::SameLine(0, 8); ImGui::TextColored(RED, "%s", Fallen(sc.deaths, sc.downs).c_str()); }
     ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + height + 3.0f));
 }
 
@@ -425,7 +432,7 @@ static void RenderCombats() {
     if (ImGui::BeginPopup("forge-history")) {
         for (size_t index = 0; index < g_fights.fights.size(); index++) {
             const ParsedFight& h = g_fights.fights[index];
-            std::string label = (h.wvw ? "McM" : (h.boss.empty() ? "PvE" : h.boss)) + " · " + Clock((int)h.durationMs) + (h.success ? " ✓" : "") + "##" + std::to_string(index);
+            std::string label = (h.wvw ? "McM" : (h.boss.empty() ? "PvE" : h.boss)) + " · " + Clock((int)h.durationMs) + (h.success ? " · kill" : "") + "##" + std::to_string(index);
             if (ImGui::Selectable(label.c_str(), (int)index == g_fights.selected)) g_fights.selected = (int)index;
         }
         ImGui::EndPopup();
@@ -501,7 +508,7 @@ static void RenderCombats() {
             uint64_t top = std::max<uint64_t>(1, f.squad.front().damage);
             int shown = 0;
             for (const auto& line : f.squad) {
-                if (shown++ >= 12) { ImGui::TextColored(MUTED, "… et %d autres", (int)f.squad.size() - 12); break; }
+                if (shown++ >= 12) { ImGui::TextColored(MUTED, "... et %d autres", (int)f.squad.size() - 12); break; }
                 ImVec2 pos = ImGui::GetCursorScreenPos();
                 float height = ImGui::GetTextLineHeight() + 6.0f;
                 ImVec4 colour = line.pov ? SKY : ProfessionColour(line.spec);
@@ -514,7 +521,7 @@ static void RenderCombats() {
                 ImGui::TextColored(line.pov ? SKY : ImVec4(0.93f, 0.94f, 0.95f, 1.0f), "%s", line.name.c_str());
                 ImGui::SameLine(0, 8);
                 ImGui::TextColored(MUTED, "%s /s", Thousands(line.damage / seconds).c_str());
-                if (line.deaths || line.downs) { ImGui::SameLine(0, 8); ImGui::TextColored(RED, "%d✝ %d↓", line.deaths, line.downs); }
+                if (line.deaths || line.downs) { ImGui::SameLine(0, 8); ImGui::TextColored(RED, "%s", Fallen(line.deaths, line.downs).c_str()); }
                 ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + height + 3.0f));
             }
         }
@@ -620,7 +627,7 @@ static void PanelMenu(Settings& st) {
     if (ImGui::BeginMenu("Historique")) {
         for (size_t index = 0; index < g_fights.fights.size(); index++) {
             const ParsedFight& h = g_fights.fights[index];
-            std::string label = (h.wvw ? "McM" : (h.boss.empty() ? "PvE" : h.boss)) + " · " + Clock((int)h.durationMs) + (h.success ? " ✓" : "") + "##" + std::to_string(index);
+            std::string label = (h.wvw ? "McM" : (h.boss.empty() ? "PvE" : h.boss)) + " · " + Clock((int)h.durationMs) + (h.success ? " · kill" : "") + "##" + std::to_string(index);
             if (ImGui::MenuItem(label.c_str(), nullptr, (int)index == g_fights.selected)) g_fights.selected = (int)index;
         }
         ImGui::EndMenu();
@@ -761,7 +768,7 @@ static void RenderWidget() {
                     int rank = 0;
                     for (size_t i = 0; i < f.squad.size(); i++) if (f.squad[i].pov) rank = (int)i + 1;
                     ImGui::TextColored(SKY, "Toi : %s DPS%s", Thousands(f.me.damage / seconds).c_str(), rank ? (" · " + std::to_string(rank) + "e/" + std::to_string(f.squad.size())).c_str() : "");
-                    if (f.me.deaths || f.me.downs) { ImGui::SameLine(0, 6); ImGui::TextColored(RED, "%d✝ %d↓", f.me.deaths, f.me.downs); }
+                    if (f.me.deaths || f.me.downs) { ImGui::SameLine(0, 6); ImGui::TextColored(RED, "%s", Fallen(f.me.deaths, f.me.downs).c_str()); }
                 }
                 ImGui::Separator();
                 uint64_t top = 1;
@@ -801,7 +808,7 @@ static void RenderWindow() {
         ImGui::SetWindowFontScale(g_state.settings.fontScale);
         if (!g_state.hasNight) {
             ImGui::TextColored(g_state.tokenOk ? MUTED : RED, "%s", g_state.status.c_str());
-            if (!g_state.tokenOk) Wrapped("Options Nexus → Forge : colle ton token Forge Uploader (Forge → Mon suivi → Réglages → Forge Uploader).");
+            if (!g_state.tokenOk) Wrapped("Options Nexus > Forge : colle ton token Forge Uploader (Forge > Mon suivi > Réglages > Forge Uploader).");
             else { ImGui::Separator(); if (ImGui::BeginTabBar("forge-tabs-nonight")) { if (ImGui::BeginTabItem("Combats")) { std::lock_guard<std::mutex> flock(g_fights.mutex); RenderCombats(); ImGui::EndTabItem(); } if (ImGui::BeginTabItem("Forge")) { RenderStats(); ImGui::EndTabItem(); } if (ImGui::BeginTabItem("Alertes")) { AlertsTab(); ImGui::EndTabItem(); } ImGui::EndTabBar(); } }
         } else {
             const LiveNight& n = g_state.night;
@@ -810,7 +817,7 @@ static void RenderWindow() {
                 ImGui::SetNextItemWidth(220);
                 if (ImGui::BeginCombo("##roster", n.rosterName.c_str())) {
                     for (const auto& roster : n.rosters) {
-                        std::string text = roster.name + (roster.live ? "  ● en direct" : roster.tonight ? "  · ce soir" : "");
+                        std::string text = roster.name + (roster.live ? "  (en direct)" : roster.tonight ? "  · ce soir" : "");
                         if (ImGui::Selectable(text.c_str(), roster.id == n.rosterId) && roster.id != n.rosterId) {
                             g_state.settings.rosterId = roster.id;
                             SaveSettingsLocked(SettingsPath);
@@ -823,7 +830,7 @@ static void RenderWindow() {
                 ImGui::TextColored(MUTED, "%s", n.day.c_str());
             } else ImGui::TextColored(MUTED, "%s · %s", n.rosterName.c_str(), n.day.c_str());
             ImGui::SameLine();
-            if (n.phase == "live") ImGui::TextColored(RED, "%s", "● EN DIRECT");
+            if (n.phase == "live") ImGui::TextColored(RED, "%s", "EN DIRECT");
             else if (n.phase == "ended") ImGui::TextColored(GREEN, "%s", "Soirée terminée");
             else ImGui::TextColored(MUTED, "%s", "En attente du lancement");
             // Boss strip; leads jump to a boss by clicking it.
@@ -831,7 +838,7 @@ static void RenderWindow() {
                 const auto& boss = n.bosses[index];
                 if (index) ImGui::SameLine();
                 ImVec4 color = boss.killed ? GREEN : boss.on ? RED : MUTED;
-                std::string text = std::string(boss.killed ? "✓ " : boss.on ? "▶ " : "") + boss.label;
+                std::string text = boss.on ? "» " + boss.label : boss.label + (boss.killed ? " OK" : "");
                 if (n.canPlan && n.phase == "live" && !boss.on) {
                     ImGui::PushStyleColor(ImGuiCol_Text, color);
                     if (ImGui::SmallButton(text.c_str())) { std::string o = boss.killed ? "undo" : "go", b = boss.id; std::thread([o, b]() { SendOp(o, b); }).detach(); }
@@ -868,10 +875,10 @@ static void RenderWindow() {
                     if (NexusLink && NexusLink->FontBig) ImGui::PopFont();
                     ImGui::TextColored(MUTED, "%s", "Ta place");
                     ImGui::SameLine();
-                    ImGui::TextColored(SKY, "%s", cur.hasPlace ? cur.myPlace.c_str() : "—");
+                    ImGui::TextColored(SKY, "%s", cur.hasPlace ? cur.myPlace.c_str() : "-");
                     ImGui::Spacing();
                     for (const auto& goal : cur.goals) {
-                        ImGui::TextColored(goal.met ? GREEN : GOLD, "%s %s", goal.met ? "✓" : "◎", goal.label.c_str());
+                        ImGui::TextColored(goal.met ? GREEN : GOLD, "%s %s", goal.met ? "[x]" : "[ ]", goal.label.c_str());
                         ImGui::TextColored(MUTED, "   %s", goal.state.c_str());
                     }
                     if (!cur.goals.empty()) ImGui::Spacing();
@@ -956,7 +963,7 @@ static void RenderOptions() {
         if (!TokenBuffer[0] && !g_state.settings.token.empty()) snprintf(TokenBuffer, sizeof(TokenBuffer), "%s", g_state.settings.token.c_str());
         if (!UrlBuffer[0]) snprintf(UrlBuffer, sizeof(UrlBuffer), "%s", g_state.settings.forgeUrl.c_str());
     }
-    ImGui::TextWrapped("%s", "Token Forge Uploader : dans Forge, Mon suivi → Réglages → Forge Uploader → Créer mon token. Le même que pour l'uploader.");
+    ImGui::TextWrapped("%s", "Token Forge Uploader : dans Forge, Mon suivi > Réglages > Forge Uploader > Créer mon token. Le même que pour l'uploader.");
     ImGui::InputText("Token Forge", TokenBuffer, sizeof(TokenBuffer), ImGuiInputTextFlags_Password);
     ImGui::InputText("Adresse de Forge", UrlBuffer, sizeof(UrlBuffer));
     { std::lock_guard<std::mutex> flock(g_fights.mutex); if (!LogsBuffer[0]) snprintf(LogsBuffer, sizeof(LogsBuffer), "%s", Narrow(g_fights.logsDir).c_str()); }
@@ -1064,7 +1071,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 9, 4, 0 };
+    Def.Version = { 0, 9, 5, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Combats en direct, et les Alertes Forge : timers de boss (format TaimiHUD), auras d'avantages, voix.";
     Def.Load = AddonLoad;

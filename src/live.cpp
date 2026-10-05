@@ -178,7 +178,7 @@ bool LiveSnapshot(ParsedFight& out) {
     auto colourOf = [&](uint16_t team) -> std::string { if (!team) return ""; auto it = colours.find(team); return it != colours.end() ? it->second : "Équipe " + std::to_string(team); };
     ParsedFight f;
     f.ok = true;
-    f.file = s.finished ? "Direct · terminé" : "● En direct";
+    f.file = s.finished ? "Direct · terminé" : "En direct";
     f.wvw = s.wvwMap;
     f.fightId = s.wvwMap ? 1 : 0;
     f.success = s.success;

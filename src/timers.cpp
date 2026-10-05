@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "json.hpp"
+#include "text.h"
 
 namespace timers {
 using json = nlohmann::json;
@@ -142,6 +143,8 @@ std::string TimerFile::Title() const {
 bool Parse(const std::string& raw, TimerFile& out, std::string& error) {
     std::string text = raw;
     if (text.size() >= 3 && (unsigned char)text[0] == 0xEF && (unsigned char)text[1] == 0xBB && (unsigned char)text[2] == 0xBF) text.erase(0, 3);
+    // Bullets, arrows and curly quotes in names and descriptions: what the window's Latin-1 font can show.
+    text = ForFont(text);
     json data = json::parse(text, nullptr, false, true, true);
     if (data.is_discarded() || !data.is_object()) { error = "JSON illisible"; return false; }
     out.id = Text(data, "id");
