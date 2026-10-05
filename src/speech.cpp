@@ -8,10 +8,13 @@
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <thread>
 
+#include "soundfile.h"
 #include "tones.h"
 
 namespace {
@@ -197,10 +200,17 @@ std::vector<std::string> SoundFiles() {
     std::vector<std::string> names;
     std::error_code error;
     if (folder.empty() || !std::filesystem::is_directory(folder, error)) return names;
-    for (const auto& entry : std::filesystem::directory_iterator(folder, error)) {
-        std::wstring extension = entry.path().extension().wstring();
+    std::filesystem::recursive_directory_iterator it(folder, std::filesystem::directory_options::skip_permission_denied, error), end;
+    for (; !error && it != end; it.increment(error)) {
+        if (it.depth() > 1) { it.disable_recursion_pending(); continue; }
+        std::error_code fileError;
+        if (!it->is_regular_file(fileError)) continue;
+        std::wstring extension = it->path().extension().wstring();
         std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
-        if (extension == L".wav" && entry.is_regular_file(error)) names.push_back(entry.path().filename().u8string());
+        if (extension != L".wav" && extension != L".ogg") continue;
+        std::string relative = std::filesystem::relative(it->path(), folder, fileError).u8string();
+        std::replace(relative.begin(), relative.end(), '\\', '/');
+        if (!fileError && !relative.empty()) names.push_back(relative);
     }
     std::sort(names.begin(), names.end());
     return names;
@@ -208,22 +218,32 @@ std::vector<std::string> SoundFiles() {
 
 void PlayTone(const std::string& id, int volume) {
     if (id.empty()) return;
-    if (id.rfind("file:", 0) == 0) {
-        std::filesystem::path path;
-        { std::lock_guard<std::mutex> lock(toneMutex); if (soundFolder.empty()) return; path = soundFolder / std::filesystem::u8path(id.substr(5)); }
-        PlaySoundW(path.c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
-        return;
-    }
+    const bool file = id.rfind("file:", 0) == 0;
+    std::filesystem::path path;
     const uint8_t* data = nullptr;
     {
         std::lock_guard<std::mutex> lock(toneMutex);
+        if (file) {
+            if (soundFolder.empty()) return;
+            path = soundFolder / std::filesystem::u8path(id.substr(5));
+        }
         std::string key = id + "|" + std::to_string(volume);
         auto it = toneCache.find(key);
-        if (it == toneCache.end()) it = toneCache.emplace(key, tones::Wav(id, volume)).first;
-        if (it->second.empty()) return;
-        data = it->second.data();
+        if (it == toneCache.end()) {
+            std::vector<uint8_t> wav;
+            if (file) {
+                // Ogg Vorbis or 16-bit WAV, decoded once and scaled to the volume.
+                std::ifstream in(path, std::ios::binary);
+                std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                wav = soundfile::ToWav(bytes, volume);
+            } else wav = tones::Wav(id, volume);
+            it = toneCache.emplace(key, std::move(wav)).first;
+        }
+        if (!it->second.empty()) data = it->second.data();
     }
-    PlaySoundW((LPCWSTR)data, nullptr, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+    if (data) PlaySoundW((LPCWSTR)data, nullptr, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+    // A WAV the decoder does not read (24-bit, float…): Windows plays the file itself, at its own volume.
+    else if (file) PlaySoundW(path.c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
 }
 
 void StopTones() { PlaySoundW(nullptr, nullptr, 0); }

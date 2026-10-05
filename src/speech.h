@@ -16,11 +16,11 @@ void Speak(const std::string& text, const std::string& voiceId, int volume, int 
 // 0: soft (Windows' "Asterisk"), 1: sharp ("Exclamation"). Returns at once.
 void PlayAlertSound(int kind);
 
-// An alert sound: a synthesized one (tones.h id), or "file:<name>.wav" from the sounds folder. Volume 0–100 (the
-// synthesized ones only: a file plays as recorded). One at a time: a new one cuts the previous; the voice is apart.
+// An alert sound: a synthesized one (tones.h id), or "file:<path>" relative to the sounds folder (.ogg like
+// WeakAuras' sounds, or .wav). Volume 0–100. One at a time: a new one cuts the previous; the voice is apart.
 void PlayTone(const std::string& id, int volume);
 void SetSoundFolder(const std::string& folder);
-// The .wav files of the sounds folder, by name (UTF-8).
+// The .ogg and .wav files of the sounds folder and its sub-folders, as paths relative to it ("WeakAuras/AirHorn.ogg").
 std::vector<std::string> SoundFiles();
 // Stops what plays (before the addon unloads: Windows reads the sound from our memory).
 void StopTones();

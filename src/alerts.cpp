@@ -126,6 +126,41 @@ bool SafeEntry(const std::string& name) {
     return true;
 }
 
+// Downloads a zip and unpacks it into root, which is ours and is emptied first (only when its name is the one
+// expected, a safeguard). Returns "" or what went wrong; found counts the files with one of the extensions.
+std::string UnpackZip(const std::string& url, const fs::path& root, const char* expectedName, const std::vector<std::string>& extensions, int& found) {
+    found = 0;
+    std::string body;
+    int code = HttpGet(url, "", body);
+    if (code != 200 || body.size() < 1024) return "Téléchargement impossible (HTTP " + std::to_string(code) + ").";
+    mz_zip_archive zip;
+    memset(&zip, 0, sizeof(zip));
+    if (!mz_zip_reader_init_mem(&zip, body.data(), body.size(), 0)) return "Archive illisible.";
+    std::error_code error;
+    if (root.filename() == fs::path(expectedName)) fs::remove_all(root, error);
+    fs::create_directories(root, error);
+    mz_uint count = mz_zip_reader_get_num_files(&zip);
+    for (mz_uint index = 0; index < count; index++) {
+        mz_zip_archive_file_stat stat;
+        if (!mz_zip_reader_file_stat(&zip, index, &stat) || stat.m_is_directory) continue;
+        std::string name = stat.m_filename;
+        if (!SafeEntry(name)) continue;
+        size_t size = 0;
+        void* data = mz_zip_reader_extract_to_heap(&zip, index, &size, 0);
+        if (!data) continue;
+        fs::path out = root / fs::u8path(name);
+        fs::create_directories(out.parent_path(), error);
+        std::ofstream file(out, std::ios::binary);
+        file.write((const char*)data, (std::streamsize)size);
+        mz_free(data);
+        std::string extension = out.extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+        if (file && std::find(extensions.begin(), extensions.end(), extension) != extensions.end()) found++;
+    }
+    mz_zip_reader_end(&zip);
+    return "";
+}
+
 // Render thread only (it owns Downloader).
 void DownloadHero() {
     if (Downloading.exchange(true)) return;
@@ -135,37 +170,39 @@ void DownloadHero() {
         auto finish = [](const std::string& status) { SetDownloadStatus(status); Downloading = false; };
         if (target.empty()) return finish("Dossier de Forge introuvable.");
         SetDownloadStatus("Téléchargement de Hero's Timers…");
-        std::string body;
-        int code = HttpGet(HERO_URL, "", body);
-        if (code != 200 || body.size() < 1024) return finish("Téléchargement impossible (HTTP " + std::to_string(code) + ").");
-        mz_zip_archive zip;
-        memset(&zip, 0, sizeof(zip));
-        if (!mz_zip_reader_init_mem(&zip, body.data(), body.size(), 0)) return finish("Archive illisible.");
-        std::error_code error;
-        fs::path root(target);
-        if (root.filename() == fs::path("Hero-Timers")) fs::remove_all(root, error); // Our own copy: the new pack replaces it.
-        fs::create_directories(root, error);
         int found = 0;
-        mz_uint count = mz_zip_reader_get_num_files(&zip);
-        for (mz_uint index = 0; index < count; index++) {
-            mz_zip_archive_file_stat stat;
-            if (!mz_zip_reader_file_stat(&zip, index, &stat) || stat.m_is_directory) continue;
-            std::string name = stat.m_filename;
-            if (!SafeEntry(name)) continue;
-            size_t size = 0;
-            void* data = mz_zip_reader_extract_to_heap(&zip, index, &size, 0);
-            if (!data) continue;
-            fs::path out = root / fs::u8path(name);
-            fs::create_directories(out.parent_path(), error);
-            std::ofstream file(out, std::ios::binary);
-            file.write((const char*)data, (std::streamsize)size);
-            mz_free(data);
-            if (file && out.extension() == ".bhtimer") found++;
-        }
-        mz_zip_reader_end(&zip);
+        std::string failure = UnpackZip(HERO_URL, fs::path(target), "Hero-Timers", { ".bhtimer" }, found);
+        if (!failure.empty()) return finish(failure);
         if (!found) return finish("Aucun timer dans l'archive.");
         ReloadRequested = true;
         finish("Hero's Timers installés : " + std::to_string(found) + " timers.");
+    });
+}
+
+// ---- WeakAuras' sounds, downloaded into Forge's sounds folder ---------------------------------------------------
+// Kept beside the addon, not inside it: they are WeakAuras' (CC BY 3.0, Sampling Plus 1.0, CC0, GPL-2.0, credits in
+// the archive's CREDITS.txt), served from the addon's repository.
+
+const char* WEAKAURAS_SOUNDS_URL = "https://raw.githubusercontent.com/prxmat/forge-nexus/main/sounds/weakauras.zip";
+std::atomic<bool> SoundsDownloading{ false };
+std::thread SoundsDownloader;
+std::mutex SoundsMutex;
+std::string SoundsStatus;
+
+void SetSoundsStatus(const std::string& text) { std::lock_guard<std::mutex> lock(SoundsMutex); SoundsStatus = text; }
+std::string GetSoundsStatus() { std::lock_guard<std::mutex> lock(SoundsMutex); return SoundsStatus; }
+
+// Render thread, or the addon's load (before any frame).
+void InstallWeakAurasSounds() {
+    if (SoundsDownloading.exchange(true)) return;
+    if (SoundsDownloader.joinable()) SoundsDownloader.join();
+    fs::path root = fs::path(SoundsDir) / "WeakAuras";
+    SoundsDownloader = std::thread([root]() {
+        SetSoundsStatus("Téléchargement des sons WeakAuras…");
+        int found = 0;
+        std::string failure = UnpackZip(WEAKAURAS_SOUNDS_URL, root, "WeakAuras", { ".ogg", ".wav" }, found);
+        SetSoundsStatus(!failure.empty() ? failure : found ? "Sons WeakAuras installés : " + std::to_string(found) + "." : "Aucun son dans l'archive.");
+        SoundsDownloading = false;
     });
 }
 
@@ -324,9 +361,18 @@ std::string SoundName(const std::string& id) {
     if (id == "default") return "Par défaut";
     if (id.empty()) return "Aucun";
     if (const char* label = tones::Label(id)) return label;
-    if (id.rfind("file:", 0) == 0) return id.substr(5);
+    if (id.rfind("file:", 0) == 0) {
+        // A file: its name without folder nor extension ("WeakAuras/AirHorn.ogg" → AirHorn).
+        std::string name = id.substr(5);
+        size_t slash = name.find_last_of('/');
+        if (slash != std::string::npos) name = name.substr(slash + 1);
+        size_t dot = name.find_last_of('.');
+        return dot == std::string::npos ? name : name.substr(0, dot);
+    }
     return id;
 }
+
+bool FromWeakAuras(const std::string& file) { return file.rfind("WeakAuras/", 0) == 0; }
 
 // A menu of sounds (silence, the synthesized ones, the player's .wav files); picking one plays it.
 bool SoundCombo(const char* label, std::string& id, const std::vector<std::string>& files, bool withDefault, int volume) {
@@ -340,8 +386,20 @@ bool SoundCombo(const char* label, std::string& id, const std::vector<std::strin
         };
         if (withDefault) option("default");
         option("");
+        ImGui::TextDisabled("%s", "Forge");
         for (const auto& sound : tones::All()) option(sound.id);
-        for (const auto& file : files) option("file:" + file);
+        bool header = false;
+        for (const auto& file : files) {
+            if (!FromWeakAuras(file)) continue;
+            if (!header) { ImGui::TextDisabled("%s", "WeakAuras"); header = true; }
+            option("file:" + file);
+        }
+        header = false;
+        for (const auto& file : files) {
+            if (FromWeakAuras(file)) continue;
+            if (!header) { ImGui::TextDisabled("%s", "Mes sons"); header = true; }
+            option("file:" + file);
+        }
         ImGui::EndCombo();
     }
     return changed;
@@ -656,6 +714,8 @@ void AlertsLoad(AddonAPI_t* api, NexusLinkData_t* nexus, Mumble::Data* mumble, c
     SoundsDir = (fs::path(api->Paths_GetAddonDirectory("Forge")) / "sounds").string();
     fs::create_directories(SoundsDir, error);
     SetSoundFolder(SoundsDir);
+    // WeakAuras' sounds, once: they come with the addon's repository, not inside the DLL.
+    if (!fs::exists(fs::path(SoundsDir) / "WeakAuras" / "AirHorn.ogg", error)) InstallWeakAurasSounds();
     // TaimiHUD keeps its packs under addons/Taimi/timers (older builds: TaimiHUD). Built from the addons folder: no
     // folder gets created for an addon the player does not have.
     fs::path addons(api->Paths_GetAddonDirectory(nullptr));
@@ -680,6 +740,7 @@ void AlertsUnload() {
     SpeechStop();
     if (Loader.joinable()) Loader.join();
     if (Downloader.joinable()) Downloader.join();
+    if (SoundsDownloader.joinable()) SoundsDownloader.join();
     Run.machines.clear();
 }
 
@@ -827,8 +888,17 @@ void AlertsTab() {
         changed |= SoundCombo("Au moment", st.dueSound, files, false, st.soundVolume);
         changed |= SoundCombo("Quand une alerte s'affiche", st.alertSound, files, false, st.soundVolume);
         changed |= ImGui::SliderInt("Volume des sons", &st.soundVolume, 0, 100);
+        int weakAuras = (int)std::count_if(files.begin(), files.end(), FromWeakAuras);
+        if (SoundsDownloading) ImGui::TextColored(MUTED, "%s", GetSoundsStatus().c_str());
+        else {
+            ImGui::TextColored(MUTED, "Sons WeakAuras : %d installés", weakAuras);
+            ImGui::SameLine();
+            if (ImGui::SmallButton(weakAuras ? "Réinstaller" : "Installer")) InstallWeakAurasSounds();
+            std::string status = GetSoundsStatus();
+            if (!status.empty() && !weakAuras) ImGui::TextColored(GOLD, "%s", status.c_str());
+        }
         if (ImGui::SmallButton("Dossier des sons")) ShellExecuteW(nullptr, L"open", Wide(SoundsDir).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Tes propres sons .wav, posés dans addons\\Forge\\sounds, s'ajoutent aux menus. Ils jouent à leur volume d'origine.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Tes propres sons .ogg ou .wav, posés dans addons\\Forge\\sounds, s'ajoutent aux menus.");
         ImGui::SameLine();
         ImGui::TextColored(MUTED, "%s", "Chaque mécanique peut avoir ses sons : Timers chargés, bouton Sons du timer.");
         ImGui::Spacing();

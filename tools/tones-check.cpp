@@ -1,12 +1,16 @@
 // Native check of the synthesized alert sounds (src/tones.cpp): each one renders, has the length and the pitch it
 // should, and makes a valid WAV; they are written to build/native/tones/ to be listened to. From the root:
-//   clang++ -std=c++17 -Isrc tools/tones-check.cpp src/tones.cpp -o build/native/tones-check && build/native/tones-check
+// It also decodes the WeakAuras sounds of sounds/weakauras (Ogg Vorbis, WAV) the way the addon plays them.
+//   clang -O2 -c -DSTB_VORBIS_NO_STDIO src/thirdparty/stb_vorbis.c -o build/native/stb_vorbis.o
+//   clang++ -std=c++17 -Isrc tools/tones-check.cpp src/tones.cpp src/soundfile.cpp build/native/stb_vorbis.o -o build/native/tones-check && build/native/tones-check
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 
+#include "soundfile.h"
 #include "tones.h"
 
 static int failures = 0;
@@ -44,6 +48,32 @@ int main() {
     bool silent = true;
     for (size_t i = 44; i < quiet.size(); i++) if (quiet[i]) silent = false;
     Expect(silent, "volume 0 is silent");
+    // The WeakAuras set, as the addon decodes it.
+    int decoded = 0, unreadable = 0;
+    double airHorn = 0, warningSiren = 0, sheep = 0, glass = 0;
+    for (const auto& entry : std::filesystem::directory_iterator("sounds/weakauras")) {
+        std::string name = entry.path().filename().string();
+        if (entry.path().extension() != ".ogg" && entry.path().extension() != ".wav") continue;
+        std::ifstream in(entry.path(), std::ios::binary);
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::vector<uint8_t> wav = soundfile::ToWav(bytes, 80);
+        double seconds = soundfile::Seconds(wav);
+        if (seconds > 0.1 && seconds < 15) decoded++; else { unreadable++; std::printf("  unreadable: %s\n", name.c_str()); }
+        if (name == "AirHorn.ogg") airHorn = seconds;
+        if (name == "WarningSiren.ogg") warningSiren = seconds;
+        if (name == "SheepBleat.ogg") sheep = seconds;
+        if (name == "Glass.wav") glass = seconds;
+    }
+    Expect(decoded >= 64 && unreadable == 0, "WeakAuras: " + std::to_string(decoded) + " sounds decoded");
+    Expect(std::fabs(airHorn - 1.899) < 0.02 && std::fabs(warningSiren - 4.255) < 0.02 && std::fabs(sheep - 1.325) < 0.02 && glass > 0.5, "WeakAuras: lengths as ffprobe reads them (AirHorn " + std::to_string(airHorn) + " s, 96 kHz stereo SheepBleat " + std::to_string(sheep) + " s)");
+    {
+        std::ifstream in("sounds/weakauras/AirHorn.ogg", std::ios::binary);
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::vector<uint8_t> full = soundfile::ToWav(bytes, 100), half = soundfile::ToWav(bytes, 50);
+        auto peak = [](const std::vector<uint8_t>& wav) { int top = 0; for (size_t i = 44; i + 1 < wav.size(); i += 2) top = std::max(top, std::abs((int)(int16_t)(wav[i] | (wav[i + 1] << 8)))); return top; };
+        Expect(std::abs(peak(full) / 2 - peak(half)) <= 1, "WeakAuras: volume 50 halves the sound");
+        Expect(soundfile::ToWav({ 'n', 'o', 'p', 'e' }, 80).empty(), "a file that is no sound gives nothing");
+    }
     std::printf(failures ? "%d FAILED\n" : "all good\n", failures);
     return failures ? 1 : 0;
 }
