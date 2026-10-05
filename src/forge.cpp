@@ -163,8 +163,25 @@ void LoadSettings(const std::string& path) {
         s.speakSounds = data.value("speak_sounds", true);
         s.speakAlerts = data.value("speak_alerts", true);
         s.speakWarnings = data.value("speak_warnings", true);
-        s.beepDue = data.value("beep_due", false);
-        s.warnAt = data.value("warn_at", 3);
+        s.warnAt = data.value("warn_at", 4);
+        // Before the countdown sounds (0.9.3): the voice read at 3 s; it moves to 4 s, ahead of the "wuh" at 3, 2, 1.
+        if (!data.contains("countdown_sound") && s.warnAt == 3) s.warnAt = 4;
+        s.countdownSound = data.value("countdown_sound", std::string("sirene"));
+        s.dueSound = data.value("due_sound", std::string(data.value("beep_due", false) ? "bip" : ""));
+        s.alertSound = data.value("alert_sound", std::string());
+        s.countdownFrom = data.value("countdown_from", 3);
+        s.countdownEvery = std::max(1, data.value("countdown_every", 1));
+        s.soundVolume = data.value("sound_volume", 80);
+        s.warningSounds.clear();
+        if (data.contains("warning_sounds") && data["warning_sounds"].is_object()) {
+            for (const auto& [key, value] : data["warning_sounds"].items()) {
+                if (!value.is_object()) continue;
+                WarningSound sound;
+                sound.countdown = value.value("countdown", std::string("default"));
+                sound.due = value.value("due", std::string("default"));
+                s.warningSounds[key] = sound;
+            }
+        }
         s.timerVoice = data.value("timer_voice", "");
         s.auraVoice = data.value("aura_voice", "");
         s.voiceVolume = data.value("voice_volume", 90);
@@ -254,8 +271,16 @@ void SaveSettingsLocked(const std::string& path) {
         data["speak_sounds"] = s.speakSounds;
         data["speak_alerts"] = s.speakAlerts;
         data["speak_warnings"] = s.speakWarnings;
-        data["beep_due"] = s.beepDue;
         data["warn_at"] = s.warnAt;
+        data["countdown_sound"] = s.countdownSound;
+        data["due_sound"] = s.dueSound;
+        data["alert_sound"] = s.alertSound;
+        data["countdown_from"] = s.countdownFrom;
+        data["countdown_every"] = s.countdownEvery;
+        data["sound_volume"] = s.soundVolume;
+        json sounds = json::object();
+        for (const auto& [key, sound] : s.warningSounds) if (sound.countdown != "default" || sound.due != "default") sounds[key] = { { "countdown", sound.countdown }, { "due", sound.due } };
+        data["warning_sounds"] = sounds;
         data["timer_voice"] = s.timerVoice;
         data["aura_voice"] = s.auraVoice;
         data["voice_volume"] = s.voiceVolume;

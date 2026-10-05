@@ -7,9 +7,12 @@
 #include <algorithm>
 #include <condition_variable>
 #include <deque>
+#include <filesystem>
 #include <map>
 #include <mutex>
 #include <thread>
+
+#include "tones.h"
 
 namespace {
 struct Line { std::wstring text; std::string voice; int volume = 100, rate = 0; ULONGLONG at = 0; };
@@ -133,6 +136,7 @@ void SpeechStart() {
 }
 
 void SpeechStop() {
+    StopTones();
     {
         std::lock_guard<std::mutex> lock(mutex);
         if (!running) return;
@@ -174,3 +178,52 @@ void Speak(const std::string& text, const std::string& voiceId, int volume, int 
 void PlayAlertSound(int kind) {
     PlaySoundW(kind ? L"SystemExclamation" : L"SystemAsterisk", nullptr, SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
 }
+
+namespace {
+std::mutex toneMutex;
+// Every sound made, by id and volume, kept for the session: Windows reads it from here while it plays.
+std::map<std::string, std::vector<uint8_t>> toneCache;
+std::filesystem::path soundFolder;
+}
+
+void SetSoundFolder(const std::string& folder) {
+    std::lock_guard<std::mutex> lock(toneMutex);
+    soundFolder = std::filesystem::path(folder);
+}
+
+std::vector<std::string> SoundFiles() {
+    std::filesystem::path folder;
+    { std::lock_guard<std::mutex> lock(toneMutex); folder = soundFolder; }
+    std::vector<std::string> names;
+    std::error_code error;
+    if (folder.empty() || !std::filesystem::is_directory(folder, error)) return names;
+    for (const auto& entry : std::filesystem::directory_iterator(folder, error)) {
+        std::wstring extension = entry.path().extension().wstring();
+        std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
+        if (extension == L".wav" && entry.is_regular_file(error)) names.push_back(entry.path().filename().u8string());
+    }
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+void PlayTone(const std::string& id, int volume) {
+    if (id.empty()) return;
+    if (id.rfind("file:", 0) == 0) {
+        std::filesystem::path path;
+        { std::lock_guard<std::mutex> lock(toneMutex); if (soundFolder.empty()) return; path = soundFolder / std::filesystem::u8path(id.substr(5)); }
+        PlaySoundW(path.c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
+        return;
+    }
+    const uint8_t* data = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(toneMutex);
+        std::string key = id + "|" + std::to_string(volume);
+        auto it = toneCache.find(key);
+        if (it == toneCache.end()) it = toneCache.emplace(key, tones::Wav(id, volume)).first;
+        if (it->second.empty()) return;
+        data = it->second.data();
+    }
+    PlaySoundW((LPCWSTR)data, nullptr, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+}
+
+void StopTones() { PlaySoundW(nullptr, nullptr, 0); }

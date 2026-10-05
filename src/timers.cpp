@@ -367,6 +367,13 @@ void Machine::Emit(double now, float warnAt, std::vector<Bar>& bars, std::vector
                         shouts.push_back(shout);
                     }
                 }
+                // The last ten whole seconds inside the warning's own window, for the countdown sounds.
+                for (int left = 1; left <= 10 && stamp - left >= stamp - alert.warningDuration - 0.001; left++) {
+                    if (!crossed(alert.set, stamp - left)) continue;
+                    Shout shout;
+                    shout.kind = Shout::Tick; shout.timer = file.get(); shout.text = alert.warning; shout.icon = alert.icon; shout.seconds = left;
+                    shouts.push_back(shout);
+                }
                 if (crossed(alert.set, stamp)) {
                     Shout shout;
                     shout.kind = Shout::Due; shout.timer = file.get(); shout.text = alert.warning; shout.icon = alert.icon;

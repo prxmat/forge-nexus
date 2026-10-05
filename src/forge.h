@@ -1,6 +1,7 @@
 // Forge addon for Nexus: talks to Forge (Le Bus Magique) and keeps the live night in memory for the window.
 #pragma once
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -72,6 +73,9 @@ struct AuraRule {
 };
 std::vector<AuraRule> DefaultAuras();
 
+// One warning's own sounds, WeakAuras-like: "default" follows the general choice, "" is silence.
+struct WarningSound { std::string countdown = "default", due = "default"; };
+
 struct Settings {
     std::string forgeUrl = "https://forge-lbm.vercel.app";
     std::string token;
@@ -96,8 +100,13 @@ struct Settings {
     uint32_t gameBuild = 0;
     // Alertes Forge: encounter timers (.bhtimer: TaimiHUD, Hero's Timers), boon auras, voice.
     bool timersOn = true, timersFromTaimi = true;
-    bool centerText = true, speakSounds = true, speakAlerts = true, speakWarnings = true, beepDue = false;
-    int warnAt = 3;                    // A warning is read out, and counted down in the centre, this many seconds before.
+    bool centerText = true, speakSounds = true, speakAlerts = true, speakWarnings = true;
+    int warnAt = 4;                    // A warning is read out, and counted down in the centre, this many seconds before.
+    // Sounds before a warning's moment, like WeakAuras: one each second of its last seconds (the "wuh wuh wuh"), one
+    // at the moment, one when an alert shows. Ids from tones.h, or "file:<name>.wav" from addons\Forge\sounds; "" = none.
+    std::string countdownSound = "sirene", dueSound, alertSound;
+    int countdownFrom = 3, countdownEvery = 1, soundVolume = 80;
+    std::map<std::string, WarningSound> warningSounds; // "<timer id>\n<warning text>" → its own sounds.
     std::string timerVoice, auraVoice; // SAPI voice ids; empty: an English voice for the timers, Windows' own for auras.
     int voiceVolume = 90, voiceRate = 1;
     std::vector<std::string> timersOff;   // Timer ids turned off.

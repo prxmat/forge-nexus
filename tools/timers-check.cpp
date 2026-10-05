@@ -83,15 +83,18 @@ int main(int argc, char** argv) {
         Expect(mushroom && !mushroom->icon.empty(), "the mushroom icon is found in the pack");
         // Read out at 3 s before 50 s, once.
         int warned = 0, due = 0, spawned = 0;
+        std::vector<int> ticks;
         for (double t = 11.1; t <= 52.0; t += 0.1) {
             Run step = Step(machine, t, arena);
             for (const auto& shout : step.shouts) {
+                if (shout.kind == Shout::Tick && shout.text == "Next: Mushroom #2") ticks.push_back(shout.seconds);
                 if (shout.kind == Shout::Warning && shout.text == "Next: Mushroom #2") warned++;
                 if (shout.kind == Shout::Due && shout.text == "Next: Mushroom #2") due++;
                 if (shout.kind == Shout::Alert && shout.text == "Spawned: Mushroom #2") spawned++;
             }
         }
         Expect(warned == 1 && due == 1 && spawned == 1, "mushroom #2: one read-out 3 s before, one beep when due, one alert");
+        Expect(ticks == std::vector<int>({ 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 }), "mushroom #2: one countdown tick per second, 10 down to 1");
         // The fight ends out of combat at the finish point, then the reset zone rearms it.
         machine.SetCombat(Combat::Exited);
         Step(machine, 60, Inside(file->phases[0].finish));
@@ -114,10 +117,17 @@ int main(int argc, char** argv) {
         Expect(machine.GetState() == Machine::State::OnMap, "Deimos: another key does nothing");
         machine.Release(1);
         machine.Press(0);
-        Step(machine, 2, zone);
+        Run started = Step(machine, 2, zone);
         Expect(machine.GetState() == Machine::State::OnPhase, "Deimos: key 0 starts the oils");
+        // « Move! » at 2.5 s lasts 2.5 s: its countdown has 2 and 1 only.
+        std::vector<int> moveTicks;
+        for (double t = 2.05; t <= 5.0; t += 0.05) {
+            Run step = Step(machine, t, zone);
+            for (const auto& shout : step.shouts) if (shout.kind == Shout::Tick && shout.text == "Move!") moveTicks.push_back(shout.seconds);
+        }
+        Expect(moveTicks == std::vector<int>({ 2, 1 }), "Deimos: a 2.5 s warning counts down 2, 1 only");
         // The press was used up: holding it does not finish the phase at once.
-        Step(machine, 2.1, zone);
+        Step(machine, 5.1, zone);
         Expect(machine.GetState() == Machine::State::OnPhase, "Deimos: the press is used up by the start");
         machine.Release(0);
         machine.Press(0);

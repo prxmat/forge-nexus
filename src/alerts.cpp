@@ -27,6 +27,7 @@
 #include "forge.h"
 #include "speech.h"
 #include "timers.h"
+#include "tones.h"
 #include "thirdparty/miniz/miniz.h"
 
 namespace fs = std::filesystem;
@@ -72,7 +73,7 @@ std::shared_ptr<const Library> Lib = std::make_shared<Library>();
 std::atomic<int> LibraryVersion{ 0 };
 std::atomic<bool> Loading{ false }, ReloadRequested{ false };
 std::thread Loader;
-std::string ForgeDir;
+std::string ForgeDir, SoundsDir;
 std::vector<std::string> TaimiDirs;
 
 std::shared_ptr<const Library> CurrentLibrary() { std::lock_guard<std::mutex> lock(LibraryMutex); return Lib; }
@@ -303,6 +304,57 @@ double DemoStart = 0, DemoUntil = 0;
 std::string TimerVoice(const Settings& st) { return st.timerVoice.empty() ? SpeechVoiceFor("en") : st.timerVoice; }
 void SayTimer(const Settings& st, const std::string& text) { Speak(text, TimerVoice(st), st.voiceVolume, st.voiceRate); }
 void SayAura(const Settings& st, const std::string& text) { Speak(text, st.auraVoice, st.voiceVolume, st.voiceRate); }
+
+// A warning's sound: its own when the player chose one for that mechanic, else the general one.
+std::string WarningSoundFor(const Settings& st, const timers::TimerFile* timer, const std::string& text, bool due) {
+    if (timer) {
+        auto it = st.warningSounds.find(timer->id + "\n" + text);
+        if (it != st.warningSounds.end()) {
+            const std::string& own = due ? it->second.due : it->second.countdown;
+            if (own != "default") return own;
+        }
+    }
+    return due ? st.dueSound : st.countdownSound;
+}
+
+// The countdown sounds on the last N seconds, every M: 3 and 1 → 3, 2, 1.
+bool CountdownSecond(const Settings& st, int seconds) { return seconds >= 1 && seconds <= st.countdownFrom && seconds % std::max(1, st.countdownEvery) == 0; }
+
+std::string SoundName(const std::string& id) {
+    if (id == "default") return "Par défaut";
+    if (id.empty()) return "Aucun";
+    if (const char* label = tones::Label(id)) return label;
+    if (id.rfind("file:", 0) == 0) return id.substr(5);
+    return id;
+}
+
+// A menu of sounds (silence, the synthesized ones, the player's .wav files); picking one plays it.
+bool SoundCombo(const char* label, std::string& id, const std::vector<std::string>& files, bool withDefault, int volume) {
+    bool changed = false;
+    if (ImGui::BeginCombo(label, SoundName(id).c_str())) {
+        auto option = [&](const std::string& value) {
+            if (!ImGui::Selectable((SoundName(value) + "##" + value).c_str(), id == value)) return;
+            id = value;
+            changed = true;
+            if (value != "default") PlayTone(value, volume);
+        };
+        if (withDefault) option("default");
+        option("");
+        for (const auto& sound : tones::All()) option(sound.id);
+        for (const auto& file : files) option("file:" + file);
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+// A timer's warnings, each once, in the order the file has them.
+std::vector<std::string> WarningsOf(const timers::TimerFile& file) {
+    std::vector<std::string> out;
+    for (const auto& phase : file.phases)
+        for (const auto& alert : phase.alerts)
+            if (alert.hasWarning && std::find(out.begin(), out.end(), alert.warning) == out.end()) out.push_back(alert.warning);
+    return out;
+}
 
 void Outlined(ImDrawList* draw, ImFont* font, float size, ImVec2 pos, ImU32 colour, const char* text) {
     ImU32 shadow = WithAlpha(IM_COL32(0, 0, 0, 255), ((colour >> IM_COL32_A_SHIFT) & 0xFF) / 255.0f * 0.9f);
@@ -543,6 +595,28 @@ void DemoBars(double now, std::vector<timers::Bar>& bars) {
     }
 }
 
+// The demo's « Bouge ! » every 4 s: its countdown seconds and its moment, as a real warning would sound them.
+void DemoShouts(double before, double now, std::vector<timers::Shout>& shouts) {
+    for (int round = 1; round <= 3; round++) {
+        for (int left = 0; left <= 3; left++) {
+            double at = DemoStart + 4.0 * round - left;
+            if (!(before < at && at <= now)) continue;
+            timers::Shout shout;
+            shout.kind = left ? timers::Shout::Tick : timers::Shout::Due;
+            shout.text = "Bouge !";
+            shout.seconds = left;
+            shouts.push_back(shout);
+        }
+    }
+    double spawn = DemoStart + 9.5;
+    if (before < spawn && spawn <= now) {
+        timers::Shout shout;
+        shout.kind = timers::Shout::Alert;
+        shout.text = "Champignon apparu !";
+        shouts.push_back(shout);
+    }
+}
+
 // What a machine is waiting for, in words.
 std::string Waiting(const timers::Trigger& trigger) {
     if (trigger.key) return "attend la touche de timer " + std::to_string(trigger.keyIndex);
@@ -578,6 +652,10 @@ void AlertsLoad(AddonAPI_t* api, NexusLinkData_t* nexus, Mumble::Data* mumble, c
     std::error_code error;
     ForgeDir = (fs::path(api->Paths_GetAddonDirectory("Forge")) / "timers").string();
     fs::create_directories(ForgeDir, error);
+    // The player's own .wav files join the sound menus.
+    SoundsDir = (fs::path(api->Paths_GetAddonDirectory("Forge")) / "sounds").string();
+    fs::create_directories(SoundsDir, error);
+    SetSoundFolder(SoundsDir);
     // TaimiHUD keeps its packs under addons/Taimi/timers (older builds: TaimiHUD). Built from the addons folder: no
     // folder gets created for an addon the player does not have.
     fs::path addons(api->Paths_GetAddonDirectory(nullptr));
@@ -614,8 +692,17 @@ void AlertsRender() {
     std::vector<timers::Shout> shouts;
     TickTimers(st, now, bars, shouts);
     bool demo = now < DemoUntil;
-    if (demo) DemoBars(now, bars);
+    static double lastFrame = 0;
+    if (demo) {
+        DemoBars(now, bars);
+        DemoShouts(lastFrame, now, shouts);
+    }
+    lastFrame = now;
     std::set<std::string> said;
+    // Windows plays one sound at a time: this frame's most important one goes (a moment, then an alert, then a tick).
+    std::string tone;
+    int toneRank = 0;
+    auto sound = [&](const std::string& id, int rank) { if (!id.empty() && rank > toneRank) { tone = id; toneRank = rank; } };
     for (const auto& shout : shouts) {
         switch (shout.kind) {
         case timers::Shout::Sound:
@@ -624,18 +711,23 @@ void AlertsRender() {
             break;
         case timers::Shout::Alert:
             if (st.speakAlerts && said.insert(shout.text).second) SayTimer(st, shout.text);
+            sound(st.alertSound, 2);
             break;
         case timers::Shout::Warning:
             if (st.speakWarnings && said.insert(shout.text).second) SayTimer(st, shout.text);
             break;
+        case timers::Shout::Tick:
+            if (CountdownSecond(st, shout.seconds)) sound(WarningSoundFor(st, shout.timer, shout.text, false), 1);
+            break;
         case timers::Shout::Due:
-            if (st.beepDue) PlayAlertSound(0);
+            sound(WarningSoundFor(st, shout.timer, shout.text, true), 3);
             break;
         case timers::Shout::Reset:
             Toasts.push_back({ "Timer réarmé : " + shout.text, IM_COL32(200, 200, 200, 255), now + shout.duration });
             break;
         }
     }
+    if (!tone.empty()) PlayTone(tone, st.soundVolume);
     Flashes.erase(std::remove_if(Flashes.begin(), Flashes.end(), [&](const Flash& flash) { return flash.until <= now; }), Flashes.end());
     Toasts.erase(std::remove_if(Toasts.begin(), Toasts.end(), [&](const Flash& toast) { return toast.until <= now; }), Toasts.end());
     // Nothing over loading screens, cutscenes or the map.
@@ -699,7 +791,7 @@ void AlertsTab() {
         if (ImGui::SmallButton(std::to_string(key).c_str())) { KeysDown.fetch_or(1u << key); KeysUp.fetch_or(1u << key); }
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Les « Trigger Key 0 à 4 » des timers. À assigner dans Nexus → Raccourcis : Forge · Alertes : touche de timer 0 à 4.");
-    if (ImGui::Button("Tester l'affichage et la voix")) {
+    if (ImGui::Button("Tester l'affichage, la voix et les sons")) {
         DemoStart = now;
         DemoUntil = now + 12.0;
         SayTimer(st, "Move!");
@@ -709,7 +801,7 @@ void AlertsTab() {
     bool placing = !st.alertsLocked;
     if (ImGui::Checkbox("Déplacer les barres et les auras", &placing)) { st.alertsLocked = !placing; changed = true; }
 
-    if (ImGui::CollapsingHeader("Affichage et voix")) {
+    if (ImGui::CollapsingHeader("Affichage, voix et sons")) {
         if (ImGui::Checkbox("Timers de combat", &st.timersOn)) { changed = true; machinesChanged = true; }
         ImGui::SameLine();
         if (ImGui::Checkbox("Lire aussi les timers de TaimiHUD", &st.timersFromTaimi)) { changed = true; ReloadRequested = true; }
@@ -718,14 +810,28 @@ void AlertsTab() {
         changed |= ImGui::SliderFloat("Taille du texte central", &st.centerScale, 0.8f, 3.0f, "%.1f");
         changed |= ImGui::SliderFloat("Hauteur du texte central", &st.centerY, 0.05f, 0.8f, "%.2f");
         changed |= ImGui::SliderFloat("Largeur des barres", &st.barWidth, 180.0f, 520.0f, "%.0f");
-        changed |= ImGui::SliderInt("Compte à rebours (s)", &st.warnAt, 0, 10);
+        changed |= ImGui::SliderInt("Voix : avertissement lu à", &st.warnAt, 0, 10, "%d s");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Un avertissement est lu, et compté au centre, ce nombre de secondes avant son moment. 0 : jamais.");
         changed |= ImGui::Checkbox("Lire les annonces des timers", &st.speakSounds);
         ImGui::SameLine();
         changed |= ImGui::Checkbox("Lire les alertes", &st.speakAlerts);
         ImGui::SameLine();
         changed |= ImGui::Checkbox("Lire les avertissements", &st.speakWarnings);
-        changed |= ImGui::Checkbox("Bip à l'échéance d'un avertissement", &st.beepDue);
+        ImGui::Spacing();
+        ImGui::TextColored(GOLD, "%s", "Sons avant le moment, comme WeakAuras");
+        std::vector<std::string> files = SoundFiles();
+        changed |= SoundCombo("Compte à rebours", st.countdownSound, files, false, st.soundVolume);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Joué à chacune des dernières secondes d'un avertissement : wuh, wuh, wuh… puis le son du moment.");
+        changed |= ImGui::SliderInt("Dernières secondes", &st.countdownFrom, 0, 10, "%d s");
+        changed |= ImGui::SliderInt("Un son toutes les", &st.countdownEvery, 1, 3, "%d s");
+        changed |= SoundCombo("Au moment", st.dueSound, files, false, st.soundVolume);
+        changed |= SoundCombo("Quand une alerte s'affiche", st.alertSound, files, false, st.soundVolume);
+        changed |= ImGui::SliderInt("Volume des sons", &st.soundVolume, 0, 100);
+        if (ImGui::SmallButton("Dossier des sons")) ShellExecuteW(nullptr, L"open", Wide(SoundsDir).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Tes propres sons .wav, posés dans addons\\Forge\\sounds, s'ajoutent aux menus. Ils jouent à leur volume d'origine.");
+        ImGui::SameLine();
+        ImGui::TextColored(MUTED, "%s", "Chaque mécanique peut avoir ses sons : Timers chargés, bouton Sons du timer.");
+        ImGui::Spacing();
         std::vector<VoiceInfo> voices = SpeechVoices();
         if (voices.empty()) ImGui::TextColored(MUTED, "%s", "Aucune voix Windows trouvée pour l'instant.");
         changed |= VoiceCombo("Voix des timers", st.timerVoice, voices, "Voix anglaise (auto)");
@@ -802,6 +908,39 @@ void AlertsTab() {
                     for (int key : file->keys) keys += (keys.empty() ? "" : ", ") + std::to_string(key);
                     std::string tip = file->description + "\n\n" + file->source + (keys.empty() ? "" : " · touches " + keys) + " · carte " + std::to_string(file->map) + (OffByDefault(*file) ? "\nEntraînement hors combat : désactivé tant que tu ne le coches pas." : "");
                     ImGui::SetTooltip("%s", tip.c_str());
+                }
+                std::vector<std::string> warnings = WarningsOf(*file);
+                if (warnings.empty()) continue;
+                ImGui::SameLine();
+                std::string popup = "forge-sons-" + file->id;
+                if (ImGui::SmallButton(("Sons##" + file->id).c_str())) ImGui::OpenPopup(popup.c_str());
+                if (ImGui::BeginPopup(popup.c_str())) {
+                    // Each mechanic's own countdown and moment sounds, like an aura of its own in WeakAuras.
+                    std::vector<std::string> files = SoundFiles();
+                    ImGui::TextColored(GOLD, "%s", file->Title().c_str());
+                    ImGui::TextColored(MUTED, "Par défaut : %s sur les %d dernières secondes, %s au moment.", SoundName(st.countdownSound).c_str(), st.countdownFrom, SoundName(st.dueSound).c_str());
+                    if (ImGui::BeginTable("sons", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+                        ImGui::TableSetupColumn("Avertissement");
+                        ImGui::TableSetupColumn("Compte à rebours");
+                        ImGui::TableSetupColumn("Au moment");
+                        ImGui::TableHeadersRow();
+                        for (const auto& text : warnings) {
+                            WarningSound& own = st.warningSounds[file->id + "\n" + text];
+                            ImGui::PushID(text.c_str());
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0);
+                            ImGui::TextUnformatted(text.c_str());
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::SetNextItemWidth(160);
+                            changed |= SoundCombo("##compte", own.countdown, files, true, st.soundVolume);
+                            ImGui::TableSetColumnIndex(2);
+                            ImGui::SetNextItemWidth(160);
+                            changed |= SoundCombo("##moment", own.due, files, true, st.soundVolume);
+                            ImGui::PopID();
+                        }
+                        ImGui::EndTable();
+                    }
+                    ImGui::EndPopup();
                 }
             }
             ImGui::TreePop();

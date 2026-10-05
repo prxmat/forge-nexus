@@ -80,14 +80,16 @@ struct Bar {
     bool warning = true;
 };
 
-// Something that happened this frame, once: read it out, flash it, beep.
+// Something that happened this frame, once: read it out, flash it, sound it. Tick: a whole second of a warning's
+// last ten (seconds = how many are left), for countdown sounds; Due: the warning's moment.
 struct Shout {
-    enum Kind { Sound, Alert, Warning, Due, Reset };
+    enum Kind { Sound, Alert, Warning, Tick, Due, Reset };
     Kind kind = Sound;
     const TimerFile* timer = nullptr;
     std::string text, icon;
     Colour colour;
     float duration = 0;  // How long it stays on screen.
+    int seconds = 0;     // Tick: seconds left.
 };
 
 class Machine {
