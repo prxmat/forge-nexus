@@ -21,6 +21,8 @@ void PlayAlertSound(int kind);
 void PlayTone(const std::string& id, int volume);
 void SetSoundFolder(const std::string& folder);
 // The .ogg and .wav files of the sounds folder and its sub-folders, as paths relative to it ("WeakAuras/AirHorn.ogg").
+// Read again at most every 5 s, or at the next call after RefreshSoundFiles().
 std::vector<std::string> SoundFiles();
+void RefreshSoundFiles();
 // Stops what plays (before the addon unloads: Windows reads the sound from our memory).
 void StopTones();

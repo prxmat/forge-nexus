@@ -202,6 +202,7 @@ void InstallWeakAurasSounds() {
         int found = 0;
         std::string failure = UnpackZip(WEAKAURAS_SOUNDS_URL, root, "WeakAuras", { ".ogg", ".wav" }, found);
         SetSoundsStatus(!failure.empty() ? failure : found ? "Sons WeakAuras installés : " + std::to_string(found) + "." : "Aucun son dans l'archive.");
+        RefreshSoundFiles();
         SoundsDownloading = false;
     });
 }
@@ -897,7 +898,7 @@ void AlertsTab() {
             std::string status = GetSoundsStatus();
             if (!status.empty() && !weakAuras) ImGui::TextColored(GOLD, "%s", status.c_str());
         }
-        if (ImGui::SmallButton("Dossier des sons")) ShellExecuteW(nullptr, L"open", Wide(SoundsDir).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        if (ImGui::SmallButton("Dossier des sons")) { ShellExecuteW(nullptr, L"open", Wide(SoundsDir).c_str(), nullptr, nullptr, SW_SHOWNORMAL); RefreshSoundFiles(); }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Tes propres sons .ogg ou .wav, posés dans addons\\Forge\\sounds, s'ajoutent aux menus.");
         ImGui::SameLine();
         ImGui::TextColored(MUTED, "%s", "Chaque mécanique peut avoir ses sons : Timers chargés, bouton Sons du timer.");
@@ -995,18 +996,25 @@ void AlertsTab() {
                         ImGui::TableSetupColumn("Au moment");
                         ImGui::TableHeadersRow();
                         for (const auto& text : warnings) {
-                            WarningSound& own = st.warningSounds[file->id + "\n" + text];
+                            // Read without adding: an entry is only kept once the player picks something.
+                            const std::string key = file->id + "\n" + text;
+                            auto found = st.warningSounds.find(key);
+                            WarningSound own = found != st.warningSounds.end() ? found->second : WarningSound();
                             ImGui::PushID(text.c_str());
                             ImGui::TableNextRow();
                             ImGui::TableSetColumnIndex(0);
                             ImGui::TextUnformatted(text.c_str());
                             ImGui::TableSetColumnIndex(1);
                             ImGui::SetNextItemWidth(160);
-                            changed |= SoundCombo("##compte", own.countdown, files, true, st.soundVolume);
+                            bool picked = SoundCombo("##compte", own.countdown, files, true, st.soundVolume);
                             ImGui::TableSetColumnIndex(2);
                             ImGui::SetNextItemWidth(160);
-                            changed |= SoundCombo("##moment", own.due, files, true, st.soundVolume);
+                            picked |= SoundCombo("##moment", own.due, files, true, st.soundVolume);
                             ImGui::PopID();
+                            if (!picked) continue;
+                            if (own.countdown == "default" && own.due == "default") st.warningSounds.erase(key);
+                            else st.warningSounds[key] = own;
+                            changed = true;
                         }
                         ImGui::EndTable();
                     }

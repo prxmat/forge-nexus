@@ -187,33 +187,60 @@ std::mutex toneMutex;
 // Every sound made, by id and volume, kept for the session: Windows reads it from here while it plays.
 std::map<std::string, std::vector<uint8_t>> toneCache;
 std::filesystem::path soundFolder;
+// The folder's sound files, read again at most every 5 s: the menus ask for them every frame, and walking the
+// folder each time (64 WeakAuras files) made the game crawl.
+std::vector<std::string> soundList;
+uint64_t soundListAt = 0;
+bool soundListStale = true;
 }
 
 void SetSoundFolder(const std::string& folder) {
     std::lock_guard<std::mutex> lock(toneMutex);
     soundFolder = std::filesystem::path(folder);
+    soundListStale = true;
+}
+
+void RefreshSoundFiles() {
+    std::lock_guard<std::mutex> lock(toneMutex);
+    soundListStale = true;
 }
 
 std::vector<std::string> SoundFiles() {
     std::filesystem::path folder;
-    { std::lock_guard<std::mutex> lock(toneMutex); folder = soundFolder; }
+    const uint64_t now = GetTickCount64();
+    {
+        std::lock_guard<std::mutex> lock(toneMutex);
+        if (!soundListStale && now - soundListAt < 5000) return soundList;
+        folder = soundFolder;
+    }
     std::vector<std::string> names;
     std::error_code error;
-    if (folder.empty() || !std::filesystem::is_directory(folder, error)) return names;
-    std::filesystem::recursive_directory_iterator it(folder, std::filesystem::directory_options::skip_permission_denied, error), end;
-    for (; !error && it != end; it.increment(error)) {
-        if (it.depth() > 1) { it.disable_recursion_pending(); continue; }
-        std::error_code fileError;
-        if (!it->is_regular_file(fileError)) continue;
-        std::wstring extension = it->path().extension().wstring();
-        std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
-        if (extension != L".wav" && extension != L".ogg") continue;
-        std::string relative = std::filesystem::relative(it->path(), folder, fileError).u8string();
-        std::replace(relative.begin(), relative.end(), '\\', '/');
-        if (!fileError && !relative.empty()) names.push_back(relative);
+    if (!folder.empty() && std::filesystem::is_directory(folder, error)) {
+        const std::wstring base = folder.wstring();
+        std::filesystem::recursive_directory_iterator it(folder, std::filesystem::directory_options::skip_permission_denied, error), end;
+        for (; !error && it != end; it.increment(error)) {
+            if (it.depth() > 1) { it.disable_recursion_pending(); continue; }
+            std::error_code fileError;
+            if (!it->is_regular_file(fileError)) continue;
+            std::wstring extension = it->path().extension().wstring();
+            std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
+            if (extension != L".wav" && extension != L".ogg") continue;
+            // The path under the folder, by its text: std::filesystem::relative opens every file to resolve it.
+            std::wstring full = it->path().wstring();
+            if (full.compare(0, base.size(), base) != 0) continue;
+            std::wstring rest = full.substr(base.size());
+            while (!rest.empty() && (rest.front() == L'\\' || rest.front() == L'/')) rest.erase(0, 1);
+            std::string relative = std::filesystem::path(rest).u8string();
+            std::replace(relative.begin(), relative.end(), '\\', '/');
+            if (!relative.empty()) names.push_back(relative);
+        }
     }
     std::sort(names.begin(), names.end());
-    return names;
+    std::lock_guard<std::mutex> lock(toneMutex);
+    soundList = names;
+    soundListAt = now;
+    soundListStale = false;
+    return soundList;
 }
 
 void PlayTone(const std::string& id, int volume) {
