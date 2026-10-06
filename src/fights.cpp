@@ -97,6 +97,7 @@ void Loop() {
                     }
                 }
                 // Outside the lock: the report is a network call.
+                if (fight.ok) StatsSoon();
                 if (!fight.ok) ReportError("Log illisible : " + fight.error, "{\"file\":\"" + fight.file + "\"}");
                 else if (fight.wvw && fight.teams.empty() && fight.eventsRead) ReportError("Log McM sans équipe", "{\"file\":\"" + fight.file + "\",\"agents\":" + std::to_string(fight.agentsRead) + ",\"players\":" + std::to_string(fight.playersRead) + ",\"withTeam\":" + std::to_string(fight.playersWithTeam) + ",\"colours\":" + std::to_string(fight.coloursKnown) + "}");
             }
