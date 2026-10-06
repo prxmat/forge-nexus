@@ -140,10 +140,15 @@ void SaveSettings(const std::string& path);
 // Same, for a caller that already holds g_state.mutex.
 void SaveSettingsLocked(const std::string& path);
 
-// One poll: fetches /api/live/night and updates the state; returns false when the token is refused.
-bool PollNight();
+// One poll: fetches /api/live/night and updates the state. fresh: right after a change, skip Forge's kept copy.
+// Both polls return the seconds to wait before the next one: Forge's `poll`, or longer and longer after failures.
+int PollNight(bool fresh = false);
 // One poll of /api/live/stats: the latest PvE pull and the McM evening.
-void PollStats();
+int PollStats();
+// A new log was read: ask for the stats once the uploader has sent it to Forge.
+void StatsSoon();
+// When StatsSoon asked for the stats (GetTickCount64 ms), 0 if not; cleared by the call.
+uint64_t TakeStatsSoon();
 // "Nouvelle soirée McM": the fights sent from now on go to a fresh evening.
 void StartWvwEvening();
 // A lead's click: op is start | go | kill | undo | skip | end.

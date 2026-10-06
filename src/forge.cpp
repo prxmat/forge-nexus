@@ -1,4 +1,6 @@
 #include "forge.h"
+#include <algorithm>
+#include <atomic>
 #include <thread>
 #include "arcdps.h"
 #include "live.h"
@@ -337,7 +339,29 @@ static LiveBoss ReadBoss(const json& value) {
     return boss;
 }
 
-bool PollNight() {
+namespace {
+// Forge says in `poll` when to ask again (a few seconds while a night is live, minutes otherwise). An older Forge
+// says nothing: a minute. After a failure, wait 30 s, then twice as long each time up to 10 min, so a Forge that
+// is down (or its database out of quota) is not asked again every few seconds by every player.
+int PollAfter(const json& data) {
+    int seconds = data.contains("poll") && data["poll"].is_number() ? data["poll"].get<int>() : 60;
+    return std::clamp(seconds, 10, 900);
+}
+int Backoff(int& failures) {
+    failures = std::min(failures + 1, 6);
+    return std::min(600, 15 << failures);
+}
+int nightFailures = 0;
+int statsFailures = 0;
+std::atomic<uint64_t> statsSoonAt{ 0 };
+// The uploader sends a log within seconds; dps.report and Forge take a little longer to file it.
+constexpr uint64_t STATS_AFTER_LOG_MS = 45000;
+}
+
+void StatsSoon() { statsSoonAt = GetTickCount64() + STATS_AFTER_LOG_MS; }
+uint64_t TakeStatsSoon() { return statsSoonAt.exchange(0); }
+
+int PollNight(bool fresh) {
     Settings settings;
     {
         std::lock_guard<std::mutex> lock(g_state.mutex);
@@ -347,29 +371,32 @@ bool PollNight() {
         std::lock_guard<std::mutex> lock(g_state.mutex);
         g_state.status = "Aucun token Forge : colle-le dans les options de l'addon.";
         g_state.tokenOk = false;
-        return false;
+        return 60;
     }
     std::string body;
     // Forge keeps the state of arcdps per member, so Bienvenue can say when it is missing or outdated.
-    std::string query = std::string("?arcdps=") + ArcdpsCode(ArcdpsVerdict()) + (settings.rosterId.empty() ? "" : "&roster=" + settings.rosterId);
+    std::string query = std::string("?arcdps=") + ArcdpsCode(ArcdpsVerdict()) + (settings.rosterId.empty() ? "" : "&roster=" + settings.rosterId) + (fresh ? "&fresh=1" : "");
     int status = HttpGet(settings.forgeUrl + "/api/live/night" + query, settings.token, body);
     // Forge's guides are typographic French (’ – … œ): the window's font only has Latin-1.
     body = ForFont(body);
     std::lock_guard<std::mutex> lock(g_state.mutex);
-    if (status == 401) { g_state.status = "Token Forge inconnu ou révoqué."; g_state.tokenOk = false; g_state.hasNight = false; return false; }
+    if (status == 401) { g_state.status = "Token Forge inconnu ou révoqué."; g_state.tokenOk = false; g_state.hasNight = false; return 300; }
     if (status != 200) {
         std::string detail;
         try { json data = json::parse(body); detail = data.value("error", ""); } catch (...) {}
         g_state.status = status < 0 ? "Forge injoignable (réseau)." : "Forge répond " + std::to_string(status) + (detail.empty() ? "." : " : " + detail);
-        return true;
+        return Backoff(nightFailures);
     }
+    nightFailures = 0;
+    int next = 60;
     try {
         json data = json::parse(body);
         g_state.tokenOk = true;
+        next = PollAfter(data);
         if (!data.contains("night") || data["night"].is_null()) {
             g_state.hasNight = false;
             g_state.status = data.value("reason", "Aucune soirée.");
-            return true;
+            return next;
         }
         const json& n = data["night"];
         LiveNight night;
@@ -393,18 +420,21 @@ bool PollNight() {
         g_state.status = std::string("Réponse de Forge illisible (") + error.what() + ") : " + body.substr(0, 80);
         std::thread([message = std::string("Réponse de /api/live/night illisible : ") + error.what()]() { ReportError(message); }).detach();
     }
-    return true;
+    return next;
 }
 
-void PollStats() {
+int PollStats() {
     Settings settings;
     { std::lock_guard<std::mutex> lock(g_state.mutex); settings = g_state.settings; }
-    if (settings.token.empty()) return;
+    if (settings.token.empty()) return 60;
     std::string body;
-    if (HttpGet(settings.forgeUrl + "/api/live/stats", settings.token, body) != 200) return;
+    if (HttpGet(settings.forgeUrl + "/api/live/stats", settings.token, body) != 200) return Backoff(statsFailures);
+    statsFailures = 0;
     body = ForFont(body);
+    int next = 60;
     try {
         json data = json::parse(body);
+        next = PollAfter(data);
         PveStats pve; WvwStats wvw;
         bool hasPve = data.contains("pve") && data["pve"].is_object();
         bool hasWvw = data.contains("wvw") && data["wvw"].is_object();
@@ -455,6 +485,7 @@ void PollStats() {
         g_state.pve = pve; g_state.hasPve = hasPve;
         g_state.wvw = wvw; g_state.hasWvw = hasWvw;
     } catch (...) {}
+    return next;
 }
 
 void StartWvwEvening() {
@@ -496,7 +527,7 @@ void SendOp(const std::string& op, const std::string& bossId) {
         std::lock_guard<std::mutex> lock(g_state.mutex);
         g_state.error = message;
     }
-    PollNight();
+    PollNight(true);
     std::lock_guard<std::mutex> lock(g_state.mutex);
     g_state.busy = false;
 }

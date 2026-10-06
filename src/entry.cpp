@@ -87,12 +87,18 @@ static void NoteGameBuild() {
     g_state.settings.gameBuild = build;
     SaveSettingsLocked(SettingsPath);
 }
+// Night and stats are asked when Forge said to (see PollNight), right away after a change in the addon, and the
+// stats again once a new log has had time to reach Forge.
 static void PollLoop() {
     int tick = 0;
+    uint64_t nightAt = 0, statsAt = 0;
     while (Running) {
         NoteGameBuild();
         if (tick % 18000 == 0 || ArcCheckNow.exchange(false)) ArcdpsCheck();
-        if (tick % 50 == 0 || PollNow.exchange(false)) { PollNight(); PollStats(); }
+        bool now = PollNow.exchange(false);
+        if (uint64_t soon = TakeStatsSoon()) statsAt = std::min(statsAt, soon);
+        if (now || GetTickCount64() >= nightAt) nightAt = GetTickCount64() + 1000ull * PollNight(now);
+        if (now || GetTickCount64() >= statsAt) statsAt = GetTickCount64() + 1000ull * PollStats();
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         tick++;
     }
@@ -1071,7 +1077,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 9, 6, 0 };
+    Def.Version = { 0, 9, 7, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Combats en direct, et les Alertes Forge : timers de boss (format TaimiHUD), auras d'avantages, voix.";
     Def.Load = AddonLoad;
