@@ -814,8 +814,11 @@ static void RenderWindow() {
         ImGui::SetWindowFontScale(g_state.settings.fontScale);
         if (!g_state.hasNight) {
             ImGui::TextColored(g_state.tokenOk ? MUTED : RED, "%s", g_state.status.c_str());
-            if (!g_state.tokenOk) Wrapped("Options Nexus > Forge : colle ton token Forge Uploader (Forge > Mon suivi > Réglages > Forge Uploader).");
-            else { ImGui::Separator(); if (ImGui::BeginTabBar("forge-tabs-nonight")) { if (ImGui::BeginTabItem("Combats")) { std::lock_guard<std::mutex> flock(g_fights.mutex); RenderCombats(); ImGui::EndTabItem(); } if (ImGui::BeginTabItem("Forge")) { RenderStats(); ImGui::EndTabItem(); } if (ImGui::BeginTabItem("Alertes")) { AlertsTab(); ImGui::EndTabItem(); } ImGui::EndTabBar(); } }
+            if (g_state.settings.token.empty() || g_state.tokenRefused) Wrapped("Options Nexus > Forge : colle ton token Forge Uploader (Forge > Mon suivi > Réglages > Forge Uploader).");
+            // Combats and Alertes (timers, auras) read the game and the logs, not Forge: they stay usable
+            // without a token, and while Forge is down.
+            ImGui::Separator();
+            if (ImGui::BeginTabBar("forge-tabs-nonight")) { if (ImGui::BeginTabItem("Combats")) { std::lock_guard<std::mutex> flock(g_fights.mutex); RenderCombats(); ImGui::EndTabItem(); } if (ImGui::BeginTabItem("Forge")) { RenderStats(); ImGui::EndTabItem(); } if (ImGui::BeginTabItem("Alertes")) { AlertsTab(); ImGui::EndTabItem(); } ImGui::EndTabBar(); }
         } else {
             const LiveNight& n = g_state.night;
             // Header: the roster (a combo when the member plays in several), day, phase.
@@ -1077,7 +1080,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     Def.Signature = 0x464F5247; // "FORG"
     Def.APIVersion = NEXUS_API_VERSION;
     Def.Name = "Forge";
-    Def.Version = { 0, 9, 7, 0 };
+    Def.Version = { 0, 9, 8, 0 };
     Def.Author = "Le Bus Magique";
     Def.Description = "La soirée de raid en direct : boss en cours, ta place, les mécaniques, la compo. Combats en direct, et les Alertes Forge : timers de boss (format TaimiHUD), auras d'avantages, voix.";
     Def.Load = AddonLoad;

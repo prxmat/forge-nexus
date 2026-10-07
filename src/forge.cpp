@@ -380,7 +380,7 @@ int PollNight(bool fresh) {
     // Forge's guides are typographic French (’ – … œ): the window's font only has Latin-1.
     body = ForFont(body);
     std::lock_guard<std::mutex> lock(g_state.mutex);
-    if (status == 401) { g_state.status = "Token Forge inconnu ou révoqué."; g_state.tokenOk = false; g_state.hasNight = false; return 300; }
+    if (status == 401) { g_state.status = "Token Forge inconnu ou révoqué."; g_state.tokenOk = false; g_state.tokenRefused = true; g_state.hasNight = false; return 300; }
     if (status != 200) {
         std::string detail;
         try { json data = json::parse(body); detail = data.value("error", ""); } catch (...) {}
@@ -392,6 +392,7 @@ int PollNight(bool fresh) {
     try {
         json data = json::parse(body);
         g_state.tokenOk = true;
+        g_state.tokenRefused = false;
         next = PollAfter(data);
         if (!data.contains("night") || data["night"].is_null()) {
             g_state.hasNight = false;
