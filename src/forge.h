@@ -131,6 +131,8 @@ struct ForgeState {
     std::string error;    // Last error of a click.
     bool busy = false;    // A click is being sent.
     bool tokenOk = false;
+    // Forge answered 401: the token is unknown or revoked (not the same as Forge being down).
+    bool tokenRefused = false;
 };
 
 extern ForgeState g_state;
